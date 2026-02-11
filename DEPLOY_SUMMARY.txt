@@ -1,0 +1,114 @@
+================================================================================
+                    🚀 TOU Schedule Editor 部署总结
+================================================================================
+
+✅ 已完成准备工作:
+  ✓ Git 仓库初始化
+  ✓ 代码已提交 (commit: $(git rev-parse --short HEAD))
+  ✓ 前端构建完成 (dist/ 文件夹)
+  ✓ Railway 配置文件 (Procfile)
+  ✓ Cloudflare Skill 安装完成
+
+================================================================================
+                        📋 部署执行清单
+================================================================================
+
+【步骤 1】推送代码到 GitHub
+--------------------------------------------------------------------------------
+1. 访问: https://github.com/new
+2. 仓库名称: tou-schedule-editor
+3. 不要勾选 "Add a README file"
+4. 创建后执行以下命令:
+
+   git remote add origin https://github.com/YOUR_USERNAME/tou-schedule-editor.git
+   git branch -M main
+   git push -u origin main
+
+【步骤 2】部署后端 (Railway)
+--------------------------------------------------------------------------------
+1. 访问: https://railway.app
+2. 点击 "New Project" → "Deploy from GitHub repo"
+3. 选择你的仓库
+4. 在 Variables 中添加:
+   - GEMINI_API_KEY = 你的API密钥
+5. 等待部署完成
+6. 复制 URL (格式: https://xxx.up.railway.app)
+
+【步骤 3】部署前端 (Cloudflare Pages)
+--------------------------------------------------------------------------------
+方式 A - 命令行:
+   npm run deploy
+
+方式 B - Git 集成:
+   1. 访问: https://dash.cloudflare.com
+   2. Pages → "Connect to Git"
+   3. 选择仓库，自动部署
+
+方式 C - 手动上传:
+   1. Pages → "Upload assets"
+   2. 上传 dist 文件夹内容
+   3. 项目名: tou-schedule-editor
+
+【步骤 4】更新 API 地址
+--------------------------------------------------------------------------------
+修改 .env.local:
+   VITE_BACKEND_BASE_URL=https://your-railway-url.up.railway.app
+
+然后执行:
+   npm run build
+   npm run deploy
+
+================================================================================
+                        📁 重要文件位置
+================================================================================
+
+后端代码:     ./backend/
+前端构建:     ./dist/
+部署配置:     ./Procfile
+部署脚本:     ./deploy.sh
+部署手册:     ./DEPLOY_COMMANDS.md
+Railway指南:  ./RAILWAY_DEPLOY.md
+
+================================================================================
+                        🔧 快捷命令
+================================================================================
+
+# 完整部署流程（在配置好环境后）
+./deploy.sh
+
+# 仅构建前端
+npm run build
+
+# 部署到 Cloudflare
+npm run deploy
+
+# 查看部署状态
+npx wrangler pages deployment list --project-name=tou-schedule-editor
+
+================================================================================
+                        ⚠️  注意事项
+================================================================================
+
+1. 需要环境变量:
+   - CLOUDFLARE_API_TOKEN (用于 Pages 部署)
+   - GEMINI_API_KEY (用于 AI 功能)
+
+2. 获取 API Token:
+   https://dash.cloudflare.com/profile/api-tokens
+   权限: Cloudflare Pages > Edit
+
+3. 如果遇到 CORS 错误:
+   检查后端 CORS 配置是否包含前端域名
+
+4. 首次部署可能需要 2-5 分钟
+
+================================================================================
+                        📞 需要帮助？
+================================================================================
+
+查看详细文档:
+- DEPLOY_COMMANDS.md     - 完整命令列表
+- RAILWAY_DEPLOY.md      - Railway 部署详细指南
+- .claude/skills/cloudflare-deploy/SKILL.md - Cloudflare 技能文档
+
+================================================================================

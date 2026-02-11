@@ -1,15 +1,12 @@
 {
-  "name": "interactive-time-of-use-(tou)-schedule-editor",
-  "private": true,
+  "name": "tou-schedule-editor",
   "version": "0.1.0",
-  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
-    "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=tou-schedule-editor",
+    "deploy:staging": "npm run build && wrangler pages deploy dist --project-name=tou-schedule-editor --branch=staging"
   },
   "dependencies": {
     "@kurkle/color": "0.3.2",
@@ -27,6 +24,7 @@
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "wrangler": "^4.50.0"
   }
 }
