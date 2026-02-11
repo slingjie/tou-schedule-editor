@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Interactive TOU Schedule Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* 固定滚动条占位，避免滚动条出现/消失导致整页横向“跳动” */
+      html { scrollbar-gutter: stable; }
+    </style>
+    <!-- 已移除外部 importmap 以避免在离线/受限网络下白屏；依赖统一由 Vite 本地解析提供。 -->
+</head>
+  <body class="bg-slate-100 overflow-y-scroll">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

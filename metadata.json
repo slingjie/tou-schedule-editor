@@ -1,0 +1,5 @@
+{
+  "name": "Interactive Time-of-Use (TOU) Schedule Editor",
+  "description": "A visually-rich, interactive web application for managing and customizing monthly Time-of-Use (TOU) electricity pricing schedules. Users can easily visualize and modify pricing tiers for any hour of the day across the entire year using a click-and-drag interface.",
+  "requestFramePermissions": []
+}

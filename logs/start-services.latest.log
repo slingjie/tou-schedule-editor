@@ -1,0 +1,7 @@
+==========================================
+[周三 2026年02月11日 23:18:08.19] start-services.bat 启动
+脚本路径: D:\Desktop\ai\dist_package\start-services.bat
+当前目录: D:\Desktop\ai\dist_package
+CMD 命令行: C:\Windows\system32\cmd.exe /c ""D:\Desktop\ai\dist_package\start-services.bat" "
+==========================================
+[周三 2026年02月11日 23:18:11.91] /health 检查通过: PORT=8000
