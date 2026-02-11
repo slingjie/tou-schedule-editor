@@ -9,8 +9,8 @@ dependencies = [
     "httpx>=0.27.0",
 ]
 
+# 可选的开发依赖，仅用于本地开发
 [dependency-groups]
 dev = [
     "workers-py",
-    "workers-runtime-sdk",
 ]
