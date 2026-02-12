@@ -1,0 +1,3 @@
+2-Column CSV Points: 2 (Expected 2)
+3-Column CSV Points: 2 (Expected 2)
+Quoted CSV Points: 2 (Expected 2)

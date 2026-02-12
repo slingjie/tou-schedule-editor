@@ -7,11 +7,28 @@ import type {
   BackendStorageCurvesResponse,
   BackendStorageProfitWithFormulas,
   DischargeStrategy,
+  TierId,
 } from '../types';
 import type { LoadDataPoint } from '../utils';
 import { fetchStorageCurves, computeStorageCycles, type StorageParamsPayload } from '../storageApi';
 import { EChartTimeSeries } from './EChartTimeSeries';
 import { TIER_DEFINITIONS, DISCHARGE_STRATEGY_INFO } from '../constants';
+
+const fallbackOpByTou = (tou: TierId): '充' | '放' | '待机' => {
+  if (tou === '谷' || tou === '深') return '充';
+  if (tou === '峰' || tou === '尖') return '放';
+  return '待机';
+};
+
+const hasAnyStorageOpInSchedule = (scheduleData: StorageProfitPageProps['scheduleData']): boolean => {
+  const monthHas = scheduleData.monthlySchedule.some((month) =>
+    month.some((cell) => cell.op === '充' || cell.op === '放'),
+  );
+  if (monthHas) return true;
+  return scheduleData.dateRules.some((rule) =>
+    rule.schedule.some((cell) => cell.op === '充' || cell.op === '放'),
+  );
+};
 
 // 复用 ECharts 按需加载逻辑（与 EChartTimeSeries 保持一致）
 const loadECharts = (): Promise<any> => {
@@ -75,6 +92,27 @@ const buildDefaultStoragePayload = (
     load_kwh: Number(p.load),
   }));
 
+  const hasStorageOps = hasAnyStorageOpInSchedule(scheduleData);
+
+  const monthlyScheduleForStrategy = hasStorageOps
+    ? scheduleData.monthlySchedule
+    : scheduleData.monthlySchedule.map((month) =>
+        month.map((cell) => ({
+          ...cell,
+          op: fallbackOpByTou(cell.tou as TierId),
+        })),
+      );
+
+  const dateRulesForStrategy = hasStorageOps
+    ? scheduleData.dateRules
+    : scheduleData.dateRules.map((rule) => ({
+        ...rule,
+        schedule: rule.schedule.map((cell) => ({
+          ...cell,
+          op: fallbackOpByTou(cell.tou as TierId),
+        })),
+      }));
+
   const storageDefaults: StorageParamsPayload['storage'] = {
     capacity_kwh: 5000,
     c_rate: 0.5,
@@ -97,8 +135,8 @@ const buildDefaultStoragePayload = (
   return {
     storage: storageDefaults,
     strategySource: {
-      monthlySchedule: scheduleData.monthlySchedule,
-      dateRules: scheduleData.dateRules,
+      monthlySchedule: monthlyScheduleForStrategy,
+      dateRules: dateRulesForStrategy,
     },
     monthlyTouPrices: scheduleData.prices,
     points,
@@ -120,6 +158,10 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
   const [curvesData, setCurvesData] = useState<BackendStorageCurvesResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoStrategyActive = useMemo(
+    () => !hasAnyStorageOpInSchedule(scheduleData),
+    [scheduleData],
+  );
   // 若一开始已有 StorageCycles 页传入的结果，优先复用结果；重新加载时再回落为本页请求
   const [cyclesResult, setCyclesResult] = useState<BackendStorageCyclesResponse | null>(storageCyclesResult ?? null);
 
@@ -295,8 +337,7 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
         billSaved: delta,
       };
     }).filter((row): row is {
-                color: '#000',
-      id: string;
+      id: TierId;
       name: string;
       energyOriginal: number;
       energyNew: number;
@@ -404,6 +445,11 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
     const row = monthlySummaryRows.find((r) => r.key === 'year');
     return row?.profitEquiv ?? null;
   }, [monthlySummaryRows]);
+
+  const monthlyChartRows = useMemo(
+    () => monthlySummaryRows.filter((row) => row.key !== 'year'),
+    [monthlySummaryRows],
+  );
 
   // 在同一张图中展示两条曲线，并支持开关控制显示/隐藏
   const combinedChartRef = useRef<HTMLDivElement | null>(null);
@@ -513,11 +559,7 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
 
   // 月度 revenue / cost / profit 正负条形图
   useEffect(() => {
-    if (!monthlyChartRef.current || monthlySummaryRows.length === 0) return;
-
-    // 仅使用月份行，不包含“全年”汇总行
-    const monthRows = monthlySummaryRows.filter((row) => row.key !== 'year');
-    if (monthRows.length === 0) return;
+    if (!monthlyChartRef.current || monthlyChartRows.length === 0) return;
 
     let disposed = false;
     let chart: any = null;
@@ -529,10 +571,18 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
         chart = echarts.init(monthlyChartRef.current);
 
         // 为了让纵坐标从 1 月到 12 月自上而下排列，这里对数组做一次反转
-        const categories = monthRows.map((row) => row.label).reverse();
-        const profits = monthRows.map((row) => row.profit).reverse();
-        const revenues = monthRows.map((row) => row.revenue).reverse();
-        const costs = monthRows.map((row) => -Math.abs(row.cost)).reverse();
+        const categories = monthlyChartRows.map((row) => row.label).reverse();
+        const profits = monthlyChartRows.map((row) => row.profit).reverse();
+        const revenues = monthlyChartRows.map((row) => row.revenue).reverse();
+        const costs = monthlyChartRows.map((row) => -Math.abs(row.cost)).reverse();
+
+        // 依据真实数据自动设置横轴范围，避免成本条形图因固定范围被裁切
+        const minNegative = Math.min(0, ...costs, ...profits);
+        const maxPositive = Math.max(0, ...revenues, ...profits);
+        const span = Math.max(maxPositive - minNegative, 1);
+        const pad = span * 0.08;
+        const xMin = minNegative - pad;
+        const xMax = maxPositive + pad;
 
         const option = {
           tooltip: {
@@ -553,8 +603,8 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
             name: '← 成本 (cost)   收入 (revenue)、净收益 (profit) →',
             nameLocation: 'middle',
             nameGap: 28,
-            min: -12000,  // 左侧（成本方向）留的范围相对小
-            max: 30000,   // 右侧（收入/净收益）留的范围更大
+            min: xMin,
+            max: xMax,
             axisLabel: {
               formatter: (value: number) => `${value} 元`,
             },
@@ -581,7 +631,7 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
               barGap: '0%',
               label: {
                 show: true,
-                position: 'insideRight',
+                position: (params: any) => (Number(params?.value || 0) >= 0 ? 'insideRight' : 'insideLeft'),
                 formatter: (params: any) =>
                   params.value == null || Number.isNaN(Number(params.value))
                     ? ''
@@ -589,7 +639,7 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
               },
               emphasis: { focus: 'series' },
               itemStyle: {
-                color: '#22c55e',
+                color: (params: any) => (Number(params?.value || 0) >= 0 ? '#22c55e' : '#ef4444'),
               },
               data: profits,
             },
@@ -666,7 +716,7 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
         // ignore
       }
     };
-  }, [monthlySummaryRows]);
+  }, [monthlyChartRows]);
 
     return (
     <div className="space-y-6">
@@ -676,6 +726,11 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
           本页基于与储能次数计算相同的 TOU 配置与负荷数据，按日查看"引入储能前后"的负荷曲线与收益指标。
           当前实现使用一组默认的储能参数进行演示，如需与实际项目严格对齐，可在后续迭代中将参数从 StorageCycles 页透传进来。
         </p>
+        {autoStrategyActive && (
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            当前排程未配置储能运行逻辑（充/放）。本页已临时按 TOU 自动推断策略：谷/深=充，峰/尖=放，以便展示收益与成本对比。
+          </div>
+        )}
       </div>
 
       {storageCyclesPayload?.storage && (
@@ -692,11 +747,11 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
             </div>
             <div>
               <span className="text-slate-500">充放电效率：</span>
-              <span className="font-medium">{(storageCyclesPayload.storage.efficiency * 100).toFixed(0)}%</span>
+              <span className="font-medium">{((storageCyclesPayload.storage.single_side_efficiency ?? 0) * 100).toFixed(0)}%</span>
             </div>
             <div>
               <span className="text-slate-500">DoD：</span>
-              <span className="font-medium">{(storageCyclesPayload.storage.dod * 100).toFixed(0)}%</span>
+              <span className="font-medium">{((storageCyclesPayload.storage.depth_of_discharge ?? 0) * 100).toFixed(0)}%</span>
             </div>
             {storageCyclesPayload.storage.discharge_strategy && (
               <div className="col-span-2 md:col-span-4 pt-2 border-t border-slate-200">
@@ -806,6 +861,40 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
             </div>
             <div ref={monthlyChartRef} style={{ width: '100%', height: 460 }} />
           </div>
+
+          {monthlyChartRows.length > 0 && (
+            <div className="mt-3 overflow-x-auto">
+              <div className="mb-2 text-xs text-slate-500">
+                图表数据明细（用于核对收入/成本/净收益）
+              </div>
+              <table className="min-w-full text-xs text-left text-slate-700">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50">
+                    <th className="px-2 py-1">月份</th>
+                    <th className="px-2 py-1 text-right">收入 (元)</th>
+                    <th className="px-2 py-1 text-right">成本 (元)</th>
+                    <th className="px-2 py-1 text-right">净收益 (元)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyChartRows.map((row) => (
+                    <tr key={`chart-${row.key}`} className="border-b border-slate-100 last:border-0">
+                      <td className="px-2 py-1">{row.label}</td>
+                      <td className="px-2 py-1 text-right text-blue-700">{row.revenue.toFixed(2)}</td>
+                      <td className="px-2 py-1 text-right text-red-700">{row.cost.toFixed(2)}</td>
+                      <td
+                        className={`px-2 py-1 text-right font-medium ${
+                          row.profit >= 0 ? 'text-emerald-700' : 'text-red-700'
+                        }`}
+                      >
+                        {row.profit.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

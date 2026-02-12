@@ -2,6 +2,188 @@
 // 端点: /api/load/analyze
 // 支持 GB2312/UTF-8 编码的 CSV 文件
 
+const jsonHeaders = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+}
+
+const toDayKey = (d) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+const toMonthKey = (d) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
+const toHourKey = (d) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  return `${y}-${m}-${day} ${h}`
+}
+
+const startOfDay = (d) => {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
+const startOfHour = (d) => {
+  const x = new Date(d)
+  x.setMinutes(0, 0, 0)
+  return x
+}
+
+const addDays = (d, n) => {
+  const x = new Date(d)
+  x.setDate(x.getDate() + n)
+  return x
+}
+
+const parseTimestamp = (value) => {
+  if (value == null) return null
+  let s = String(value).trim()
+  if (!s) return null
+  if (s.includes('/')) s = s.replace(/\//g, '-')
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
+    s = `${s}T00:00:00`
+  } else if (/^\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{1,2}(:\d{1,2})?$/.test(s)) {
+    s = s.replace(' ', 'T')
+  }
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+const inferIntervalMinutes = (dates) => {
+  if (!Array.isArray(dates) || dates.length < 2) return 0
+  const sorted = dates.slice().sort((a, b) => a.getTime() - b.getTime())
+  const diffs = []
+  for (let i = 1; i < sorted.length; i += 1) {
+    const mins = (sorted[i].getTime() - sorted[i - 1].getTime()) / 60000
+    if (mins > 0 && Number.isFinite(mins) && mins <= 24 * 60) {
+      diffs.push(mins)
+    }
+  }
+  if (diffs.length === 0) return 0
+  diffs.sort((a, b) => a - b)
+  return Math.round(diffs[Math.floor(diffs.length / 2)])
+}
+
+const buildMissingReport = (dates) => {
+  if (!Array.isArray(dates) || dates.length === 0) {
+    return {
+      missing_days: [],
+      missing_hours_by_month: [],
+      partial_missing_days: [],
+      summary: {
+        total_missing_days: 0,
+        total_missing_hours: 0,
+        total_partial_missing_days: 0,
+        expected_days: 365,
+        actual_days: 0,
+        completeness_ratio: 0,
+      },
+    }
+  }
+
+  const hourMap = new Map()
+  for (const d of dates) {
+    const h = startOfHour(d)
+    hourMap.set(toHourKey(h), h)
+  }
+  const hourDates = [...hourMap.values()].sort((a, b) => a.getTime() - b.getTime())
+  if (hourDates.length === 0) {
+    return {
+      missing_days: [],
+      missing_hours_by_month: [],
+      partial_missing_days: [],
+      summary: {
+        total_missing_days: 0,
+        total_missing_hours: 0,
+        total_partial_missing_days: 0,
+        expected_days: 365,
+        actual_days: 0,
+        completeness_ratio: 0,
+      },
+    }
+  }
+
+  const presentHoursSet = new Set(hourMap.keys())
+  const presentDaysSet = new Set(hourDates.map((d) => toDayKey(startOfDay(d))))
+
+  const endDay = startOfDay(hourDates[hourDates.length - 1])
+  const startDay = addDays(endDay, -364)
+
+  const missingDays = []
+  const partialMissingDays = []
+  const monthStats = new Map()
+  let totalMissingHours = 0
+  let actualDays = 0
+
+  for (let i = 0; i < 365; i += 1) {
+    const day = addDays(startDay, i)
+    const dayKey = toDayKey(day)
+    const monthKey = toMonthKey(day)
+    if (!monthStats.has(monthKey)) {
+      monthStats.set(monthKey, { missing_days: 0, missing_hours: 0 })
+    }
+
+    if (presentDaysSet.has(dayKey)) actualDays += 1
+
+    let presentCount = 0
+    for (let h = 0; h < 24; h += 1) {
+      const hour = new Date(day)
+      hour.setHours(h, 0, 0, 0)
+      if (presentHoursSet.has(toHourKey(hour))) {
+        presentCount += 1
+      }
+    }
+
+    const missingCount = 24 - presentCount
+    if (presentCount === 0) {
+      missingDays.push(dayKey)
+      monthStats.get(monthKey).missing_days += 1
+    } else if (missingCount > 0) {
+      partialMissingDays.push({
+        date: dayKey,
+        present_hours: presentCount,
+        missing_hours: missingCount,
+      })
+    }
+
+    monthStats.get(monthKey).missing_hours += missingCount
+    totalMissingHours += missingCount
+  }
+
+  const missingHoursByMonth = [...monthStats.entries()]
+    .filter(([, stat]) => stat.missing_hours > 0)
+    .map(([month, stat]) => ({
+      month,
+      missing_days: stat.missing_days,
+      missing_hours: stat.missing_hours,
+    }))
+
+  return {
+    missing_days: missingDays,
+    missing_hours_by_month: missingHoursByMonth,
+    partial_missing_days: partialMissingDays,
+    summary: {
+      total_missing_days: missingDays.length,
+      total_missing_hours: totalMissingHours,
+      total_partial_missing_days: partialMissingDays.length,
+      expected_days: 365,
+      actual_days: actualDays,
+      completeness_ratio: Number((actualDays / 365).toFixed(4)),
+    },
+  }
+}
+
 export async function onRequestPost(context) {
   try {
     const { request } = context;
@@ -12,16 +194,13 @@ export async function onRequestPost(context) {
       return new Response(
         JSON.stringify({
           success: false,
-          detail: "No file provided"
+          detail: 'No file provided',
         }),
         {
           status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          }
-        }
-      );
+          headers: jsonHeaders,
+        },
+      )
     }
 
     // 读取文件内容
@@ -29,6 +208,7 @@ export async function onRequestPost(context) {
     const fileContent = new TextDecoder('utf-8').decode(fileBuffer);
 
     // 尝试检测并处理编码（如果 UTF-8 失败，尝试 GBK）
+    let encoding = 'utf-8'
     let lines = fileContent.split('\n').filter(line => line.trim());
 
     // 如果第一行乱码，尝试 GBK 解码
@@ -37,6 +217,7 @@ export async function onRequestPost(context) {
         const gbkDecoder = new TextDecoder('gbk');
         const gbkContent = gbkDecoder.decode(fileBuffer);
         lines = gbkContent.split('\n').filter(line => line.trim());
+        encoding = 'gbk'
       } catch (e) {
         // GBK 解码失败，继续使用 UTF-8
       }
@@ -47,6 +228,7 @@ export async function onRequestPost(context) {
     let nullCount = 0;
     let negativeCount = 0;
     let zeroCount = 0;
+    const parsedDates = []
 
     // 跳过标题行，从第2行开始解析
     for (let i = 1; i < lines.length; i++) {
@@ -91,8 +273,10 @@ export async function onRequestPost(context) {
         loadValue = parseFloat(items[1]);
       }
 
+      const parsedDate = parseTimestamp(timestamp)
+
       // 统计质量问题
-      if (isNaN(loadValue)) {
+      if (isNaN(loadValue) || !parsedDate) {
         nullCount++;
         continue;
       }
@@ -100,18 +284,30 @@ export async function onRequestPost(context) {
       if (loadValue === 0) zeroCount++;
 
 
+      parsedDates.push(parsedDate)
       points.push({
-        timestamp: timestamp,
-        load_kwh: loadValue
-      });
+        timestamp: parsedDate.toISOString(),
+        load_kwh: loadValue,
+        __ts: parsedDate.getTime(),
+      })
     }
 
+    points.sort((a, b) => a.__ts - b.__ts)
+    const cleanedPoints = points.map((p) => ({
+      timestamp: p.timestamp,
+      load_kwh: p.load_kwh,
+    }))
+
+    const missingReport = buildMissingReport(parsedDates)
+    const sourceIntervalMinutes = inferIntervalMinutes(parsedDates)
+
     // 计算统计数据
-    const loads = points.map(p => p.load_kwh);
+    const loads = cleanedPoints.map(p => p.load_kwh);
     const avgLoad = loads.length > 0 ? loads.reduce((a, b) => a + b, 0) / loads.length : 0;
     const maxLoad = loads.length > 0 ? Math.max(...loads) : 0;
     const minLoad = loads.length > 0 ? Math.min(...loads) : 0;
-    const totalKwh = avgLoad * 24; // 假设一天的数据
+    const intervalMinutes = sourceIntervalMinutes > 0 ? sourceIntervalMinutes : 15
+    const totalKwh = loads.reduce((sum, x) => sum + x * (intervalMinutes / 60), 0)
 
     // 返回前端期望的格式
     return new Response(
@@ -120,23 +316,16 @@ export async function onRequestPost(context) {
         meta: {
           filename: file.name,
           total_rows: lines.length - 1,
-          parsed_rows: points.length,
-          encoding: lines[0]?.includes('') ? 'gbk' : 'utf-8',
+          parsed_rows: cleanedPoints.length,
+          encoding,
           // 补充 frontend 需要的字段
-          source_interval_minutes: 15, // 默认
-          total_records: points.length,
-          start: points[0]?.timestamp || null,
-          end: points[points.length - 1]?.timestamp || null
+          source_interval_minutes: sourceIntervalMinutes,
+          total_records: cleanedPoints.length,
+          start: cleanedPoints[0]?.timestamp || null,
+          end: cleanedPoints[cleanedPoints.length - 1]?.timestamp || null,
         },
         report: {
-          missing: {
-            missing_days: [],
-            missing_hours_by_month: [],
-            summary: {
-              total_missing_days: 0,
-              total_missing_hours: 0
-            }
-          }, // 简化版报告，确保 frontend 不崩
+          missing: missingReport,
           anomalies: [
             { kind: 'null', count: nullCount, ratio: nullCount / (lines.length - 1 || 1), samples: [] },
             { kind: 'negative', count: negativeCount, ratio: negativeCount / (lines.length - 1 || 1), samples: [] },
@@ -144,7 +333,7 @@ export async function onRequestPost(context) {
           ],
           continuous_zero_spans: []
         },
-        cleaned_points: points, // 返回全部数据
+        cleaned_points: cleanedPoints,
         statistics: {
           avg_load: Math.round(avgLoad * 100) / 100,
           max_load: Math.round(maxLoad * 100) / 100,
@@ -154,10 +343,7 @@ export async function onRequestPost(context) {
       }),
       {
         status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
+        headers: jsonHeaders,
       }
     );
   } catch (error) {
@@ -165,14 +351,11 @@ export async function onRequestPost(context) {
     return new Response(
       JSON.stringify({
         success: false,
-        detail: `Load analysis failed: ${error.message}`
-      }),
+          detail: `Load analysis failed: ${error.message}`
+        }),
       {
         status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
+        headers: jsonHeaders,
       }
     );
   }

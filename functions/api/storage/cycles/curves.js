@@ -60,9 +60,17 @@ const inferIntervalHours = (rows) => {
 };
 
 const pickMonthPrice = (monthlyTouPrices, monthIdx) => {
+  const fallback = { 尖: 0.9, 峰: 0.7, 平: 0.5, 谷: 0.3, 深: 0.2 };
   const p = Array.isArray(monthlyTouPrices) ? monthlyTouPrices[monthIdx] : null;
-  if (p && typeof p === 'object') return p;
-  return { 尖: 0.9, 峰: 0.7, 平: 0.5, 谷: 0.3, 深: 0.2 };
+  if (!p || typeof p !== 'object') return fallback;
+  const out = { ...fallback };
+  for (const k of TIER_KEYS) {
+    const n = Number(p[k]);
+    if (Number.isFinite(n) && n > 0) {
+      out[k] = n;
+    }
+  }
+  return out;
 };
 
 const getTier = (schedule24, hour) => {
@@ -198,11 +206,11 @@ export async function onRequestPost(context) {
     const reductionKw = originalMax - newMax;
     const reductionRatio = originalMax > 0 ? reductionKw / originalMax : 0;
 
-    const prices = TIER_KEYS.map((k) => Number(monthPrice[k] ?? 0)).filter((v) => Number.isFinite(v));
-    const lowPrice = prices.length ? Math.min(...prices) : 0.4;
-    const highPrice = prices.length ? Math.max(...prices) : 0.7;
-    const revenue = dischargeEnergyKwh * highPrice;
-    const cost = chargeEnergyKwh * lowPrice;
+    // 使用分时电价：谷/深段电价作为购电价，尖/峰段电价作为售电价
+    const buyPrice = Math.min(monthPrice.谷 ?? 0.3, monthPrice.深 ?? 0.2);
+    const sellPrice = Math.max(monthPrice.尖 ?? 0.9, monthPrice.峰 ?? 0.7);
+    const revenue = dischargeEnergyKwh * sellPrice;
+    const cost = chargeEnergyKwh * buyPrice;
     const profit = revenue - cost;
 
     const responsePayload = {

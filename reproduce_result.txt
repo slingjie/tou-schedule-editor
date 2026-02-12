@@ -1,0 +1,3 @@
+2-Column CSV Points: 0
+3-Column CSV Points: 2
+XLSX Garbage Points: 0
