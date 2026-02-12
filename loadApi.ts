@@ -1,9 +1,38 @@
 import type { BackendLoadAnalysisResponse } from './types';
 import { getApiBaseUrl } from './desktopBackend';
+import * as XLSX from 'xlsx';
 
 const BASE_URL = getApiBaseUrl();
 
-export const analyzeLoadFile = async (file: File): Promise<BackendLoadAnalysisResponse> => {
+/**
+ * 预处理文件：如果是 Excel 或非标准 CSV，尝试转换为标准 CSV (Timestamp, Load)
+ */
+async function preprocessFile(file: File): Promise<File> {
+  // 如果是 Excel 文件，解析并转换为 CSV
+  if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+    console.debug('[loadApi] 检测到 Excel 文件，正在转换为 CSV...');
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+
+    // 转换为 CSV 字符串
+    const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
+
+    // 创建新的 File 对象
+    // 使用 UTF-8 BOM 防止乱码 (虽然我们后端已支持 UTF-8)
+    const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8' });
+    return new File([blob], file.name.replace(/\.(xlsx|xls)$/, '.csv'), { type: 'text/csv' });
+  }
+
+  // 对于 CSV 文件，也可以选择性地进行清洗，或者直接透传
+  // 为了保证兼容性，这里直接返回原文件，依赖后端的增强解析逻辑
+  return file;
+}
+
+export const analyzeLoadFile = async (originalFile: File): Promise<BackendLoadAnalysisResponse> => {
+  const file = await preprocessFile(originalFile);
+
   const formData = new FormData();
   formData.append('file', file);
 
