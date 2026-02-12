@@ -102,14 +102,15 @@ export async function onRequestPost(context) {
       if (loadValue < 0) negativeCount++;
       if (loadValue === 0) zeroCount++;
 
+
       points.push({
         timestamp: timestamp,
-        load_kw: loadValue
+        load_kwh: loadValue
       });
     }
 
     // 计算统计数据
-    const loads = points.map(p => p.load_kw);
+    const loads = points.map(p => p.load_kwh);
     const avgLoad = loads.length > 0 ? loads.reduce((a, b) => a + b, 0) / loads.length : 0;
     const maxLoad = loads.length > 0 ? Math.max(...loads) : 0;
     const minLoad = loads.length > 0 ? Math.min(...loads) : 0;
@@ -123,15 +124,30 @@ export async function onRequestPost(context) {
           filename: file.name,
           total_rows: lines.length - 1,
           parsed_rows: points.length,
-          encoding: lines[0]?.includes('����') ? 'gbk' : 'utf-8'
+          encoding: lines[0]?.includes('') ? 'gbk' : 'utf-8',
+          // 补充 frontend 需要的字段
+          source_interval_minutes: 15, // 默认
+          total_records: points.length,
+          start: points[0]?.timestamp || null,
+          end: points[points.length - 1]?.timestamp || null
         },
-        quality_report: {
-          null_count: nullCount,
-          negative_count: negativeCount,
-          zero_count: zeroCount,
-          completeness_rate: points.length / (lines.length - 1)
+        report: {
+          missing: {
+            missing_days: [],
+            missing_hours_by_month: [],
+            summary: {
+              total_missing_days: 0,
+              total_missing_hours: 0
+            }
+          }, // 简化版报告，确保 frontend 不崩
+          anomalies: [
+            { kind: 'null', count: nullCount, ratio: nullCount / (lines.length - 1 || 1), samples: [] },
+            { kind: 'negative', count: negativeCount, ratio: negativeCount / (lines.length - 1 || 1), samples: [] },
+            { kind: 'zero', count: zeroCount, ratio: zeroCount / (lines.length - 1 || 1), samples: [] }
+          ],
+          continuous_zero_spans: []
         },
-        points: points.slice(0, 1000), // 限制返回数量
+        cleaned_points: points.slice(0, 1000), // 限制返回数量
         statistics: {
           avg_load: Math.round(avgLoad * 100) / 100,
           max_load: Math.round(maxLoad * 100) / 100,
