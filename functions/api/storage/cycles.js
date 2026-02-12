@@ -514,10 +514,11 @@ export async function onRequestPost(context) {
           const actualDischargeKwh = socResult.actualDischargeKwh;
           currentSoc = socResult.finalSocKwh;
 
-          // 计算等效循环次数（基于实际充放电）
-          const fc = Math.min(actualChargeKwh / capacityKwh, 1);
-          const fd = Math.min(actualDischargeKwh / capacityKwh, 1);
-          const cyc = Math.min(fc, fd);
+          // 计算等效循环次数：使用充放电电量的较小值除以容量
+          // 1次循环 = 充满电再放完电（充入与放出电量的较小值等于电池容量）
+          const cyc = capacityKwh > EPS
+            ? Math.min(actualChargeKwh, actualDischargeKwh) / capacityKwh
+            : 0;
 
           dayCycles += cyc;
           dayChargeKwh += actualChargeKwh;
@@ -574,13 +575,13 @@ export async function onRequestPost(context) {
     const yearValidDays = days.filter((d) => d.is_valid).length;
     const year = yearSet.size === 1 ? [...yearSet][0] : 0;
 
+    // 月度窗口汇总：直接将月份总循环次数作为充放电次数（简化版）
     const windowMonthSummary = months.map((m) => {
       const c = Number(m.cycles) || 0;
-      const half = round(c / 2, 6);
       return {
         year_month: m.year_month,
-        first_charge_cycles: half,
-        first_discharge_cycles: half,
+        first_charge_cycles: round(c, 6),
+        first_discharge_cycles: round(c, 6),
         second_charge_cycles: 0,
         second_discharge_cycles: 0,
       };
