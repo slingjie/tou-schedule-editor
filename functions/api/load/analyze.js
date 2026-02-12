@@ -144,7 +144,7 @@ export async function onRequestPost(context) {
           ],
           continuous_zero_spans: []
         },
-        cleaned_points: points.slice(0, 1000), // 限制返回数量
+        cleaned_points: points, // 返回全部数据
         statistics: {
           avg_load: Math.round(avgLoad * 100) / 100,
           max_load: Math.round(maxLoad * 100) / 100,
