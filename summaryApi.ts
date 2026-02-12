@@ -2,7 +2,10 @@
  * 项目评估报告生成相关 API
  */
 
-const API_BASE = (import.meta as any).env?.VITE_BACKEND_BASE_URL || 'http://localhost:8000';
+import { getApiBaseUrl } from './desktopBackend';
+import { ensureBackendSupports } from './backendCapabilities';
+
+const API_BASE = getApiBaseUrl();
 
 export interface ProjectSummaryRequest {
   project_name: string;
@@ -38,6 +41,8 @@ export interface ProjectSummaryResponse {
 export async function generateProjectSummary(
   request: ProjectSummaryRequest
 ): Promise<ProjectSummaryResponse> {
+  await ensureBackendSupports('项目评估报告生成', ['/api/deepseek/project-summary']);
+
   const response = await fetch(`${API_BASE}/api/deepseek/project-summary`, {
     method: 'POST',
     headers: {

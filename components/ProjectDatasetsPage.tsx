@@ -43,6 +43,7 @@ import {
   exportStorageCyclesReport,
   BASE_URL as BACKEND_BASE_URL,
 } from '../storageApi';
+import { ensureBackendSupports } from '../backendCapabilities';
 
 type Props = {
   currentLoad: {
@@ -256,6 +257,8 @@ export const ProjectDatasetsPage: React.FC<Props> = ({
 
   const pullFromLocalSync = useCallback(async (): Promise<boolean> => {
     try {
+      await ensureBackendSupports('项目数据本地同步拉取', ['/api/local-sync/snapshot']);
+
       setLocalSyncStatus('正在拉取…');
       const resp = await fetch(`${getLocalSyncBaseUrl()}/api/local-sync/snapshot`);
       if (resp.status === 404) {
@@ -301,6 +304,8 @@ export const ProjectDatasetsPage: React.FC<Props> = ({
 
   const pushToLocalSync = useCallback(async (): Promise<boolean> => {
     try {
+      await ensureBackendSupports('项目数据本地同步推送', ['/api/local-sync/snapshot']);
+
       setLocalSyncStatus('正在推送…');
       const json = await exportAllProjectsToJson();
       const snapshot = JSON.parse(json);
@@ -663,7 +668,18 @@ export const ProjectDatasetsPage: React.FC<Props> = ({
       if (lastCyclesRun?.payload) {
         try {
           const cyclesExport = await exportStorageCyclesReport(null, lastCyclesRun.payload);
-          if (cyclesExport?.excel_path) {
+          if (cyclesExport?.file_content_base64) {
+            const bin = atob(cyclesExport.file_content_base64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+            const blob = new Blob([bytes], { type: cyclesExport.mime_type || 'text/csv;charset=utf-8' });
+            artifacts.push({
+              kind: 'cycles_export',
+              filename: cyclesExport.file_name || 'storage_cycles.csv',
+              mime: blob.type || 'text/csv',
+              blob,
+            });
+          } else if (cyclesExport?.excel_path) {
             const blob = await fetchBackendBlob(cyclesExport.excel_path);
             artifacts.push({
               kind: 'cycles_excel',
@@ -675,10 +691,21 @@ export const ProjectDatasetsPage: React.FC<Props> = ({
         } catch (e) {
           warnings.push(`cycles Excel 导出/下载失败：${e instanceof Error ? e.message : String(e)}`);
         }
-
+        
         try {
           const businessExport = await exportStorageBusinessReport(null, lastCyclesRun.payload);
-          if (businessExport?.excel_path) {
+          if (businessExport?.file_content_base64) {
+            const bin = atob(businessExport.file_content_base64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+            const blob = new Blob([bytes], { type: businessExport.mime_type || 'text/csv;charset=utf-8' });
+            artifacts.push({
+              kind: 'business_report',
+              filename: businessExport.file_name || 'storage_business.csv',
+              mime: blob.type || 'text/csv',
+              blob,
+            });
+          } else if (businessExport?.excel_path) {
             const blob = await fetchBackendBlob(businessExport.excel_path);
             artifacts.push({
               kind: 'business_zip',
@@ -695,7 +722,18 @@ export const ProjectDatasetsPage: React.FC<Props> = ({
       if (lastEconomicsRun?.input) {
         try {
           const econExport = await exportEconomicsCashflowReport(lastEconomicsRun.input, lastEconomicsRun.userSharePercent);
-          if (econExport?.excel_path) {
+          if (econExport?.file_content_base64) {
+            const bin = atob(econExport.file_content_base64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+            const blob = new Blob([bytes], { type: econExport.mime_type || 'text/csv;charset=utf-8' });
+            artifacts.push({
+              kind: 'economics_cashflow_csv',
+              filename: econExport.file_name || 'economics_cashflow.csv',
+              mime: blob.type || 'text/csv',
+              blob,
+            });
+          } else if (econExport?.excel_path) {
             const blob = await fetchBackendBlob(econExport.excel_path);
             artifacts.push({
               kind: 'economics_cashflow_csv',

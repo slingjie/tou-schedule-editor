@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReportDataV3 } from '../types';
 import { BASE_URL, fetchStorageCurves } from '../storageApi';
+import { ensureBackendSupports } from '../backendCapabilities';
 import type { StorageParamsPayload } from '../storageApi';
 import {
   getDatasetWithPoints,
@@ -37,6 +38,9 @@ const readFileAsDataUrl = (file: File): Promise<string> => {
 };
 
 const postReport = async (path: '/api/report/pdf' | '/api/report/html', reportData: ReportDataV3): Promise<Response> => {
+  const featureName = path === '/api/report/pdf' ? 'PDF 报告导出' : 'HTML 报告预览';
+  await ensureBackendSupports(featureName, [path]);
+
   const url = `${BASE_URL}${path}`;
   const resp = await fetch(url, {
     method: 'POST',

@@ -1,5 +1,6 @@
 import type { BackendLoadAnalysisResponse } from './types';
 import { getApiBaseUrl } from './desktopBackend';
+import { ensureBackendSupports } from './backendCapabilities';
 import * as XLSX from 'xlsx';
 
 const BASE_URL = getApiBaseUrl();
@@ -31,6 +32,8 @@ async function preprocessFile(file: File): Promise<File> {
 }
 
 export const analyzeLoadFile = async (originalFile: File): Promise<BackendLoadAnalysisResponse> => {
+  await ensureBackendSupports('负荷分析', ['/api/load/analyze']);
+
   const file = await preprocessFile(originalFile);
 
   const formData = new FormData();
@@ -84,6 +87,8 @@ export const analyzeLoadFileWithProgress = (
   let aborted = false;
 
   const promise = (async () => {
+    await ensureBackendSupports('负荷分析', ['/api/load/analyze']);
+
     // 预处理：XLSX 转 CSV
     const file = await preprocessFile(originalFile);
 

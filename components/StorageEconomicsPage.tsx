@@ -498,19 +498,37 @@ export const StorageEconomicsPage: React.FC<StorageEconomicsPageProps> = ({
       }
 
       const response = await exportEconomicsCashflowReport(input, normalizedShare);
-      
-      // 构造完整的下载 URL
-      const downloadUrl = `${BASE_URL}/outputs/${response.excel_path}`;
-      
-      // 触发浏览器下载
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = response.excel_path; // 使用原始文件名
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      console.log(`[StorageEconomicsPage] 报表导出成功: ${downloadUrl}`);
+
+      if (response.file_content_base64) {
+        const bin = atob(response.file_content_base64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i += 1) {
+          bytes[i] = bin.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: response.mime_type || 'text/csv;charset=utf-8' });
+        const fileName = response.file_name || response.excel_path || 'economics_cashflow.csv';
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        console.log(`[StorageEconomicsPage] 报表导出成功(base64): ${fileName}`);
+      } else if (response.excel_path) {
+        // 向后兼容：后端返回 outputs 相对路径
+        const downloadUrl = `${BASE_URL}/outputs/${response.excel_path}`;
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = response.excel_path;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        console.log(`[StorageEconomicsPage] 报表导出成功(path): ${downloadUrl}`);
+      } else {
+        throw new Error(response.message || '后端未返回可下载报表内容');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '报表导出失败，请稍后重试');
     } finally {
