@@ -514,11 +514,13 @@ export async function onRequestPost(context) {
           const actualDischargeKwh = socResult.actualDischargeKwh;
           currentSoc = socResult.finalSocKwh;
 
-          // 计算等效循环次数：使用充放电电量的较小值除以容量
-          // 1次循环 = 充满电再放完电（充入与放出电量的较小值等于电池容量）
-          const cyc = capacityKwh > EPS
-            ? Math.min(actualChargeKwh, actualDischargeKwh) / capacityKwh
-            : 0;
+          // 计算等效循环次数：与 Python 后端逻辑一致
+          // fc = min(charge/capacity, 1), fd = min(discharge/capacity, 1)
+          // cycles = min(fc, fd)
+          // 每个窗口最多贡献 1 次循环（一天最多 2 个窗口 = 2 次循环）
+          const fc = capacityKwh > EPS ? Math.min(actualChargeKwh / capacityKwh, 1) : 0;
+          const fd = capacityKwh > EPS ? Math.min(actualDischargeKwh / capacityKwh, 1) : 0;
+          const cyc = Math.min(fc, fd);
 
           dayCycles += cyc;
           dayChargeKwh += actualChargeKwh;
