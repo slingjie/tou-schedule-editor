@@ -53,12 +53,9 @@ export async function onRequestPost(context) {
       let line = lines[i].trim();
       if (!line) continue;
 
-      // 简单的 CSV 解析（处理引号内的逗号）
-      // 注意：这只是一个简单的正则处理，对于极复杂的 CSV (如引号内有换行) 可能不够，但在 Serverless 环境够用
-      const parts = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
-
-      // Fallback: 如果正则失败（例如无引号简单 CSV），直接 split
-      const items = parts ? parts.map(s => s.replace(/^"|"$/g, '').trim()) : line.split(',').map(s => s.trim());
+      // CSV 解析：直接按逗号分割，然后去除引号和空白
+      // 使用 split(',') 作为主要解析方式，简单可靠，能正确保留时间戳中的空格
+      const items = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
 
       if (items.length < 2) continue;
 
