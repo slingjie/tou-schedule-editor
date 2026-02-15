@@ -1,6 +1,8 @@
 // Cloudflare Pages Function - 储能周期计算
 // 端点: /api/storage/cycles
 
+import { computeConstrainedPower } from './_power.js';
+
 const jsonHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
@@ -67,51 +69,6 @@ const getMonthPrices = (monthlyTouPrices, monthIndex) => {
     }
   }
   return out;
-};
-
-/**
- * 简易 SOC 模拟器 - 按日追踪电池状态
- * @param {number} socKwh - 当前 SOC (kWh)
- * @param {number} capacityKwh - 电池容量 (kWh)
- * @param {number} chargeKwh - 充电量 (kWh)
- * @param {number} dischargeKwh - 放电量 (kWh)
- * @param {number} eta - 单向效率
- * @param {number} socMin - SOC 下限比例
- * @param {number} socMax - SOC 上限比例
- * @returns {Object} { actualChargeKwh, actualDischargeKwh, finalSocKwh }
- */
-const simulateSOC = (
-  socKwh,
-  capacityKwh,
-  chargeKwh,
-  dischargeKwh,
-  eta,
-  socMin,
-  socMax
-) => {
-  const minSoc = capacityKwh * socMin;
-  const maxSoc = capacityKwh * socMax;
-
-  // 限制充电不超过可用空间
-  const maxCharge = Math.max(0, maxSoc - socKwh);
-  const actualCharge = Math.min(chargeKwh, maxCharge);
-
-  // 限制放电不超过可用能量
-  const maxDischarge = Math.max(0, socKwh - minSoc);
-  const actualDischarge = Math.min(dischargeKwh, maxDischarge);
-
-  // 计算最终 SOC（考虑充放电效率）
-  // 充电: SOC += charge * eta, 放电: SOC -= discharge / eta
-  const newSoc = socKwh + actualCharge * eta - actualDischarge / eta;
-
-  // 最终 SOC 也需要限制在范围内
-  const finalSoc = Math.max(minSoc, Math.min(maxSoc, newSoc));
-
-  return {
-    actualChargeKwh: actualCharge,
-    actualDischargeKwh: actualDischarge,
-    finalSocKwh: finalSoc,
-  };
 };
 
 const getDaysInMonth = (year, monthOneBased) => {
@@ -369,33 +326,67 @@ const windowEnergy = (dayRows, hourList, intervalHours, isCharge, limitKw, reser
 };
 
 /**
- * 计算收益 - 使用月度分时电价
- * @param {number} chargeKwh - 充电量 (kWh)
- * @param {number} dischargeKwh - 放电量 (kWh)
- * @param {Array} monthlyTouPrices - 月度电价数组
- * @param {number} monthIndex - 月份索引（0-11），用于获取对应月电价
- * @returns {Object} 收益明细
+ * 解析某日的 24h 调度（与 curves.js 的 resolveSchedule24 一致）
  */
-const calcProfit = (chargeKwh, dischargeKwh, monthlyTouPrices, monthIndex = 0) => {
-  // 使用对应月份的电价，而非全局 min/max
-  const monthPrices = getMonthPrices(monthlyTouPrices, monthIndex);
+const resolveSchedule24 = (dateObj, strategySource) => {
+  const monthlySchedule = Array.isArray(strategySource?.monthlySchedule) ? strategySource.monthlySchedule : [];
+  const dateRules = Array.isArray(strategySource?.dateRules) ? strategySource.dateRules : [];
 
-  // 谷/深段电价作为购电价（充电）
-  const buyPrice = Math.min(monthPrices.谷, monthPrices.深);
-  // 尖/峰段电价作为售电价（放电）
-  const sellPrice = Math.max(monthPrices.尖, monthPrices.峰);
+  for (const rule of dateRules) {
+    const s = toDate(`${rule?.startDate}T00:00:00`);
+    const e = toDate(`${rule?.endDate}T23:59:59`);
+    if (!s || !e) continue;
+    if (dateObj.getTime() >= s.getTime() && dateObj.getTime() <= e.getTime()) {
+      if (Array.isArray(rule?.schedule) && rule.schedule.length >= 24) {
+        return rule.schedule;
+      }
+    }
+  }
 
-  const revenue = dischargeKwh * sellPrice;
-  const cost = chargeKwh * buyPrice;
-  const profit = revenue - cost;
+  const monthIdx = dateObj.getMonth();
+  const monthSchedule = Array.isArray(monthlySchedule[monthIdx]) ? monthlySchedule[monthIdx] : [];
+  if (monthSchedule.length >= 24) return monthSchedule;
 
+  return Array.from({ length: 24 }, () => ({ op: '待机', tou: '平' }));
+};
+
+/** 获取某小时的 TOU 档位 */
+const getTier = (schedule24, hour) => {
+  const raw = schedule24?.[hour]?.tou;
+  return TIER_KEYS.includes(raw) ? raw : '平';
+};
+
+/** 获取某小时的运行逻辑 */
+const getOp = (schedule24, hour) => {
+  const op = schedule24?.[hour]?.op;
+  if (op === '充' || op === '放' || op === '待机') return op;
+  return '待机';
+};
+
+/**
+ * 逐 15 分钟点分时电价收益计算（与 Python compute_profit_summary_step15 对齐）
+ * 使用 computeConstrainedPower 实现 4 层功率约束
+ */
+const calcProfitStep15 = (
+  dayRows, schedule24, monthPrices, intervalHours,
+  limitKw, limitMode, reserveChargeKw, reserveDischargeKw,
+  capacityKwh, cRate, eta, dod, socMin, socMax, mask
+) => {
+  const result = computeConstrainedPower({
+    dayRows, schedule24, monthPrices, intervalHours,
+    limitKw, limitMode,
+    reserveChargeKw, reserveDischargeKw,
+    capacityKwh, cRate, eta, dod,
+    socMin, socMax, mask,
+  });
+  const s = result.summary;
   return {
-    revenue: round(revenue, 2),
-    cost: round(cost, 2),
-    profit: round(profit, 2),
-    discharge_energy_kwh: round(dischargeKwh, 2),
-    charge_energy_kwh: round(chargeKwh, 2),
-    profit_per_kwh: dischargeKwh > EPS ? round(profit / dischargeKwh, 4) : 0,
+    revenue: round(s.revenue, 2),
+    cost: round(s.cost, 2),
+    profit: round(s.profit, 2),
+    discharge_energy_kwh: round(s.discharge_energy_kwh, 2),
+    charge_energy_kwh: round(s.charge_energy_kwh, 2),
+    profit_per_kwh: s.discharge_energy_kwh > EPS ? round(s.profit / s.discharge_energy_kwh, 4) : 0,
   };
 };
 
@@ -422,6 +413,7 @@ export async function onRequestPost(context) {
     const dod = Number(storage.depth_of_discharge) > 0 ? Number(storage.depth_of_discharge) : 1.0;
     const reserveChargeKw = Number(storage.reserve_charge_kw) || 0;
     const reserveDischargeKw = Number(storage.reserve_discharge_kw) || 0;
+    const cRate = Number(storage.c_rate) > 0 ? Number(storage.c_rate) : 0.5;
     const mergeThresholdMinutes = Number(storage.merge_threshold_minutes) > 0 ? Number(storage.merge_threshold_minutes) : 30;
 
     const intervalHours = inferIntervalHours(rows);
@@ -434,16 +426,10 @@ export async function onRequestPost(context) {
     const days = [];
     const monthAgg = new Map();
     const yearSet = new Set();
+    let yearRevenue = 0;
+    let yearCost = 0;
     let yearChargeKwh = 0;
     let yearDischargeKwh = 0;
-
-    // SOC 参数
-    const socMin = Number(storage.soc_min) > 0 ? Number(storage.soc_min) : 0.05;
-    const socMax = Number(storage.soc_max) > 0 ? Number(storage.soc_max) : 0.95;
-    // 初始 SOC（默认 50%）
-    const initialSoc = capacityKwh * 0.5;
-    // 每日 SOC 状态（跨天传递）
-    let currentSoc = initialSoc;
 
     for (const [dateKey, dayRows] of [...dailyLoads.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       const d = toDate(`${dateKey}T00:00:00`);
@@ -490,49 +476,31 @@ export async function onRequestPost(context) {
             reserveDischargeKw,
           );
 
-          // 原始充放电量
-          let rawChargeKwh = ch.baseKwh * dod / Math.max(eta, EPS);
-          let rawDischargeKwh = dis.baseKwh * dod * eta;
-
-          // 按电池容量封顶（日循环不超过 2 次）
-          const maxDailyEnergy = capacityKwh * 2;
-          rawChargeKwh = Math.min(rawChargeKwh, maxDailyEnergy);
-          rawDischargeKwh = Math.min(rawDischargeKwh, maxDailyEnergy);
-
-          // SOC 模拟 - 获取实际可充放电量
-          const socResult = simulateSOC(
-            currentSoc,
-            capacityKwh,
-            rawChargeKwh,
-            rawDischargeKwh,
-            eta,
-            socMin,
-            socMax
-          );
-
-          const actualChargeKwh = socResult.actualChargeKwh;
-          const actualDischargeKwh = socResult.actualDischargeKwh;
-          currentSoc = socResult.finalSocKwh;
-
-          // 计算等效循环次数：与 Python 后端逻辑一致
-          // fc = min(charge/capacity, 1), fd = min(discharge/capacity, 1)
-          // cycles = min(fc, fd)
-          // 每个窗口最多贡献 1 次循环（一天最多 2 个窗口 = 2 次循环）
-          const fc = capacityKwh > EPS ? Math.min(actualChargeKwh / capacityKwh, 1) : 0;
-          const fd = capacityKwh > EPS ? Math.min(actualDischargeKwh / capacityKwh, 1) : 0;
+          // 与 Python _cycle_contrib 完全对齐
+          const E_in_grid = ch.baseKwh * dod / Math.max(eta, EPS);
+          const E_out_grid = dis.baseKwh * dod * eta;
+          const fc = capacityKwh > EPS ? Math.min(E_in_grid / capacityKwh, 1) : 0;
+          const fd = capacityKwh > EPS ? Math.min(E_out_grid / capacityKwh, 1) : 0;
           const cyc = Math.min(fc, fd);
-
           dayCycles += cyc;
-          dayChargeKwh += actualChargeKwh;
-          dayDischargeKwh += actualDischargeKwh;
+          dayChargeKwh += E_in_grid;
+          dayDischargeKwh += E_out_grid;
         }
       }
 
-      yearChargeKwh += dayChargeKwh;
-      yearDischargeKwh += dayDischargeKwh;
+      // 逐点分时电价收益（与 Python compute_profit_summary_step15 对齐）
+      const schedule24 = resolveSchedule24(d, strategySource);
+      const monthPrices = getMonthPrices(monthlyTouPrices, monthIdx);
+      const dayProfit = calcProfitStep15(
+        dayRows, schedule24, monthPrices, intervalHours,
+        limitKw, 'monthly_demand_max', reserveChargeKw, reserveDischargeKw,
+        capacityKwh, cRate, eta, dod, 0, 1, mask
+      );
 
-      // 使用月度电价计算收益
-      const dayProfit = calcProfit(dayChargeKwh, dayDischargeKwh, monthlyTouPrices, monthIdx);
+      yearChargeKwh += Number(dayProfit.charge_energy_kwh) || 0;
+      yearDischargeKwh += Number(dayProfit.discharge_energy_kwh) || 0;
+      yearRevenue += Number(dayProfit.revenue) || 0;
+      yearCost += Number(dayProfit.cost) || 0;
 
       days.push({
         date: dateKey,
@@ -548,27 +516,36 @@ export async function onRequestPost(context) {
           valid_days: 0,
           charge_kwh: 0,
           discharge_kwh: 0,
+          revenue: 0,
+          cost: 0,
         });
       }
       const agg = monthAgg.get(ym);
       agg.cycles += dayCycles;
-      agg.charge_kwh += dayChargeKwh;
-      agg.discharge_kwh += dayDischargeKwh;
+      agg.charge_kwh += Number(dayProfit.charge_energy_kwh) || 0;
+      agg.discharge_kwh += Number(dayProfit.discharge_energy_kwh) || 0;
+      agg.revenue += Number(dayProfit.revenue) || 0;
+      agg.cost += Number(dayProfit.cost) || 0;
       if (isValid) agg.valid_days += 1;
     }
 
     const months = [...monthAgg.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([ym, agg]) => {
-        // 解析 year_month 获取月份索引
-        const monthNum = Number.parseInt(ym.length >= 7 ? ym.slice(5, 7) : '1', 10);
-        const mIdx = Number.isFinite(monthNum) && monthNum >= 1 && monthNum <= 12 ? monthNum - 1 : 0;
+        const monthProfit = agg.revenue - agg.cost;
         return {
           year_month: ym,
           cycles: round(agg.cycles, 6),
           valid_days: agg.valid_days,
           profit: {
-            main: calcProfit(agg.charge_kwh, agg.discharge_kwh, monthlyTouPrices, mIdx),
+            main: {
+              revenue: round(agg.revenue, 2),
+              cost: round(agg.cost, 2),
+              profit: round(monthProfit, 2),
+              discharge_energy_kwh: round(agg.discharge_kwh, 2),
+              charge_energy_kwh: round(agg.charge_kwh, 2),
+              profit_per_kwh: agg.discharge_kwh > EPS ? round(monthProfit / agg.discharge_kwh, 4) : 0,
+            },
           },
         };
       });
@@ -589,26 +566,11 @@ export async function onRequestPost(context) {
       };
     });
 
-    // 年度收益使用年均电价（所有月份电价的平均值）
-    const yearlyAvgPrices = (() => {
-      const all = { 尖: [], 峰: [], 平: [], 谷: [], 深: [] };
-      for (let i = 0; i < 12; i++) {
-        const mp = getMonthPrices(monthlyTouPrices, i);
-        for (const k of TIER_KEYS) all[k].push(mp[k]);
-      }
-      const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
-      return {
-        尖: avg(all.尖), 峰: avg(all.峰), 平: avg(all.平), 谷: avg(all.谷), 深: avg(all.深)
-      };
-    })();
-    const yearlyBuyPrice = Math.min(yearlyAvgPrices.谷, yearlyAvgPrices.深);
-    const yearlySellPrice = Math.max(yearlyAvgPrices.尖, yearlyAvgPrices.峰);
-    const yearlyRevenue = yearDischargeKwh * yearlySellPrice;
-    const yearlyCost = yearChargeKwh * yearlyBuyPrice;
-    const yearlyProfit = yearlyRevenue - yearlyCost;
+    // 年度收益 = 所有日度收益之和（与 Python 一致）
+    const yearlyProfit = yearRevenue - yearCost;
     const yearProfitMain = {
-      revenue: round(yearlyRevenue, 2),
-      cost: round(yearlyCost, 2),
+      revenue: round(yearRevenue, 2),
+      cost: round(yearCost, 2),
       profit: round(yearlyProfit, 2),
       discharge_energy_kwh: round(yearDischargeKwh, 2),
       charge_energy_kwh: round(yearChargeKwh, 2),
