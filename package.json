@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@kurkle/color": "0.3.2",
-    "@supabase/supabase-js": "^2.87.1",
     "chart.js": "^4.5.1",
     "chartjs-adapter-date-fns": "^3.0.0",
     "chartjs-plugin-zoom": "^2.2.0",
