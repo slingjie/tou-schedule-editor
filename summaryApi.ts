@@ -3,7 +3,6 @@
  */
 
 import { getApiBaseUrl } from './desktopBackend';
-import { ensureBackendSupports } from './backendCapabilities';
 
 const API_BASE = getApiBaseUrl();
 
@@ -41,8 +40,6 @@ export interface ProjectSummaryResponse {
 export async function generateProjectSummary(
   request: ProjectSummaryRequest
 ): Promise<ProjectSummaryResponse> {
-  await ensureBackendSupports('项目评估报告生成', ['/api/deepseek/project-summary']);
-
   const response = await fetch(`${API_BASE}/api/deepseek/project-summary`, {
     method: 'POST',
     headers: {

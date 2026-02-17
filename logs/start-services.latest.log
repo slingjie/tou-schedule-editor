@@ -1,7 +1,11 @@
 ==========================================
-[周三 2026年02月11日 23:18:08.19] start-services.bat 启动
+[周二 2026年02月17日 11:24:37.38] start-services.bat 启动
 脚本路径: D:\Desktop\ai\dist_package\start-services.bat
 当前目录: D:\Desktop\ai\dist_package
 CMD 命令行: C:\Windows\system32\cmd.exe /c ""D:\Desktop\ai\dist_package\start-services.bat" "
 ==========================================
-[周三 2026年02月11日 23:18:11.91] /health 检查通过: PORT=8000
+[周二 2026年02月17日 11:24:38.07] 启动后端窗口: PORT=8000
+[周二 2026年02月17日 11:24:38.07] 后端日志: 
+[周二 2026年02月17日 11:24:38.07] 后端错误日志: 
+[周二 2026年02月17日 11:24:38.07] 后端命令: "D:\Desktop\ai\dist_package\.venv\Scripts\python.exe" -X utf8 -m uvicorn backend.app:app --app-dir . --host 0.0.0.0 --port 8000 --reload-dir . --reload
+[周二 2026年02月17日 11:24:41.31] 警告: /health 检查失败: PORT=8000

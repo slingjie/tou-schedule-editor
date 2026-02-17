@@ -1,5 +1,6 @@
 import type { Configuration, Schedule, DateRule, MonthlyTouPrices } from './types';
 import { INITIAL_APP_STATE } from './constants';
+import { enqueuePush } from './cloudSyncManager';
 
 const STORAGE_KEY = 'tou_schedule_configurations';
 
@@ -76,6 +77,7 @@ export const saveConfiguration = async (
 
   allConfigs[newId] = newConfig;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(allConfigs));
+  enqueuePush({ type: 'tou_config', id: newId, action: 'upsert', data: { name, schedule_data: scheduleData } });
   return newConfig;
 };
 
@@ -86,6 +88,7 @@ export const deleteConfiguration = async (id: string): Promise<void> => {
   if (allConfigs[id]) {
     delete allConfigs[id];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(allConfigs));
+    enqueuePush({ type: 'tou_config', id, action: 'delete' });
   } else {
      throw new Error('Configuration not found');
   }

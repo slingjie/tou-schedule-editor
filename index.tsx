@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { isTauriDesktop, startBackend, stopBackend } from './desktopBackend';
+import { initSync } from './cloudSyncManager';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -34,6 +35,9 @@ async function bootstrap() {
       </ErrorBoundary>
     </React.StrictMode>
   );
+
+  // 启动云端同步（不阻塞渲染）
+  initSync().catch(err => console.warn('Cloud sync init failed:', err));
 }
 
 bootstrap();

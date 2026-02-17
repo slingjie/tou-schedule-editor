@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude mcp add roadmap \"npx -y roadmap-skill\")",
+      "Bash(npx wrangler pages deploy dist --project-name=tou-schedule-editor)",
+      "Bash(curl -s -X OPTIONS \"https://839de5ef.tou-schedule-editor.pages.dev/api/storage/cycles\" -H \"Origin: https://test.com\" -H \"Access-Control-Request-Method: POST\" -w \"\\\\nHTTP_CODE:%{http_code}\")",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_evaluate",
+      "Bash(git add functions/api/storage/_power.js functions/api/storage/cycles.js functions/api/storage/cycles/curves.js)",
+      "Bash(git commit:*)",
+      "Bash(npx tsc --noEmit --pretty)",
+      "Bash(npx wrangler d1 create tou-schedule-db)",
+      "Bash(npx wrangler r2 bucket create tou-schedule-storage)",
+      "Bash(npx wrangler d1 execute tou-schedule-db --remote --file=migrations/0001_init.sql)",
+      "Bash(npm run deploy)",
+      "Bash(npx wrangler pages deploy dist --project-name=tou-schedule-editor --commit-message=\"add cloud sync phase 1\" --commit-dirty=true)",
+      "Bash(curl -s -X POST \"https://tou-schedule-editor.pages.dev/api/sync/register\" -H \"Content-Type: application/json\" -d '{\"\"device_id\"\":\"\"test_dev_001\"\",\"\"device_name\"\":\"\"curl-test\"\"}')",
+      "Bash(npm run build)",
+      "Bash(npx wrangler pages deploy dist --project-name=tou-schedule-editor --commit-message=\"wire initSync into app bootstrap\" --commit-dirty=true)",
+      "Bash(curl -s \"https://tou-schedule-editor.pages.dev/api/sync/pull?device_id=new_test_device&since=1970-01-01T00:00:00Z\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f\"\"ok={d[''ok'']}, projects={len\\(d[''projects'']\\)}, datasets={len\\(d[''datasets'']\\)}, runs={len\\(d[''runs'']\\)}, tou_configs={len\\(d[''tou_configs'']\\)}\"\"\\)\")"
+    ]
+  }
+}

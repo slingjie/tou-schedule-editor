@@ -1,4 +1,5 @@
 import type { BackendAnalysisMeta, BackendQualityReport } from './types';
+import { enqueuePush } from './cloudSyncManager';
 
 export type LocalProject = {
   id: string;
@@ -31,13 +32,14 @@ export type LocalDataset = {
 export type LocalDatasetWithPoints = LocalDataset & { points: StoredLoadPoint[] };
 
 const DB_NAME = 'load-analysis-local-store';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORE_PROJECTS = 'projects';
 const STORE_DATASETS = 'datasets';
 const STORE_DATASET_POINTS = 'dataset_points';
 const STORE_RUNS = 'runs';
 const STORE_RUN_ARTIFACTS = 'run_artifacts';
+const STORE_SYNC_META = 'sync_meta';
 
 type DatasetPointsRow = { dataset_id: string; points: StoredLoadPoint[] };
 type RunArtifactRow = {
@@ -148,6 +150,9 @@ const openDb = (): Promise<IDBDatabase> => {
         const ra = db.createObjectStore(STORE_RUN_ARTIFACTS, { keyPath: 'artifact_id' });
         ra.createIndex('by_run_id', 'run_id', { unique: false });
       }
+      if (!db.objectStoreNames.contains(STORE_SYNC_META)) {
+        db.createObjectStore(STORE_SYNC_META, { keyPath: 'entity_key' });
+      }
     };
     req.onsuccess = () => resolve(req.result);
   });
@@ -215,10 +220,12 @@ export const createProject = async (name: string): Promise<LocalProject> => {
   if (existing.some(p => p.name === trimmed)) throw new Error('项目名称已存在');
 
   if (!(await canUseIdb())) {
-    return await withLocalStorage((snap) => {
+    const result = await withLocalStorage((snap) => {
       snap.projects.push(project);
       return project;
     });
+    enqueuePush({ type: 'project', id: project.id, action: 'upsert', data: { name: project.name, created_at: project.created_at, updated_at: project.updated_at } });
+    return result;
   }
 
   const db = await getDb();
@@ -227,10 +234,11 @@ export const createProject = async (name: string): Promise<LocalProject> => {
     store.add(project);
     return await Promise.resolve();
   });
+  enqueuePush({ type: 'project', id: project.id, action: 'upsert', data: { name: project.name, created_at: project.created_at, updated_at: project.updated_at } });
   return project;
 };
 
-const upsertProject = async (project: LocalProject): Promise<void> => {
+export const upsertProject = async (project: LocalProject): Promise<void> => {
   if (!(await canUseIdb())) {
     await withLocalStorage((snap) => {
       const idx = snap.projects.findIndex(p => p.id === project.id);
@@ -251,7 +259,7 @@ const upsertProject = async (project: LocalProject): Promise<void> => {
   });
 };
 
-const upsertDatasetWithPoints = async (dataset: LocalDataset, points: StoredLoadPoint[]): Promise<void> => {
+export const upsertDatasetWithPoints = async (dataset: LocalDataset, points: StoredLoadPoint[]): Promise<void> => {
   if (!(await canUseIdb())) {
     await withLocalStorage((snap) => {
       const idx = snap.datasets.findIndex(d => d.id === dataset.id);
@@ -260,12 +268,15 @@ const upsertDatasetWithPoints = async (dataset: LocalDataset, points: StoredLoad
       } else {
         snap.datasets.push(dataset);
       }
-      const pIdx = snap.dataset_points.findIndex(dp => dp.dataset_id === dataset.id);
-      const row: DatasetPointsRow = { dataset_id: dataset.id, points };
-      if (pIdx >= 0) {
-        snap.dataset_points[pIdx] = row;
-      } else {
-        snap.dataset_points.push(row);
+      // Only overwrite points if non-empty (pull sends [] to preserve existing)
+      if (points.length > 0) {
+        const pIdx = snap.dataset_points.findIndex(dp => dp.dataset_id === dataset.id);
+        const row: DatasetPointsRow = { dataset_id: dataset.id, points };
+        if (pIdx >= 0) {
+          snap.dataset_points[pIdx] = row;
+        } else {
+          snap.dataset_points.push(row);
+        }
       }
       const p = snap.projects.find(x => x.id === dataset.project_id);
       if (p) p.updated_at = nowIso();
@@ -276,7 +287,10 @@ const upsertDatasetWithPoints = async (dataset: LocalDataset, points: StoredLoad
   const db = await getDb();
   await idbTx(db, [STORE_DATASETS, STORE_DATASET_POINTS, STORE_PROJECTS], 'readwrite', async (tx) => {
     tx.objectStore(STORE_DATASETS).put(dataset);
-    tx.objectStore(STORE_DATASET_POINTS).put({ dataset_id: dataset.id, points } satisfies DatasetPointsRow);
+    // Only overwrite points if non-empty
+    if (points.length > 0) {
+      tx.objectStore(STORE_DATASET_POINTS).put({ dataset_id: dataset.id, points } satisfies DatasetPointsRow);
+    }
     const pStore = tx.objectStore(STORE_PROJECTS);
     const p = await idbRequest(pStore.get(dataset.project_id));
     if (p) pStore.put({ ...(p as LocalProject), updated_at: nowIso() });
@@ -284,7 +298,7 @@ const upsertDatasetWithPoints = async (dataset: LocalDataset, points: StoredLoad
   });
 };
 
-const upsertRunWithArtifacts = async (run: LocalRun, artifacts: LocalRunArtifact[]): Promise<void> => {
+export const upsertRunWithArtifacts = async (run: LocalRun, artifacts: LocalRunArtifact[]): Promise<void> => {
   if (!(await canUseIdb())) {
     await withLocalStorage(async (snap) => {
       const idx = snap.runs.findIndex(r => r.id === run.id);
@@ -356,6 +370,7 @@ export const renameProject = async (projectId: string, newName: string): Promise
       p.name = trimmed;
       p.updated_at = nowIso();
     });
+    enqueuePush({ type: 'project', id: projectId, action: 'upsert', data: { name: trimmed, updated_at: nowIso() } });
     return;
   }
 
@@ -368,6 +383,7 @@ export const renameProject = async (projectId: string, newName: string): Promise
     store.put(updated);
     return await Promise.resolve();
   });
+  enqueuePush({ type: 'project', id: projectId, action: 'upsert', data: { name: trimmed, updated_at: nowIso() } });
 };
 
 export const deleteProject = async (projectId: string): Promise<void> => {
@@ -381,6 +397,7 @@ export const deleteProject = async (projectId: string): Promise<void> => {
       snap.runs = snap.runs.filter(r => r.project_id !== projectId);
       snap.run_artifacts = snap.run_artifacts.filter(a => !runIds.includes(a.run_id));
     });
+    enqueuePush({ type: 'project', id: projectId, action: 'delete' });
     return;
   }
 
@@ -412,6 +429,7 @@ export const deleteProject = async (projectId: string): Promise<void> => {
     projects.delete(projectId);
     return await Promise.resolve();
   });
+  enqueuePush({ type: 'project', id: projectId, action: 'delete' });
 };
 
 export const listDatasets = async (projectId: string): Promise<LocalDataset[]> => {
@@ -443,6 +461,7 @@ export const renameDataset = async (datasetId: string, newName: string): Promise
       d.name = trimmed;
       d.updated_at = nowIso();
     });
+    enqueuePush({ type: 'dataset', id: datasetId, action: 'upsert', data: { name: trimmed, updated_at: nowIso() } });
     return;
   }
 
@@ -454,6 +473,7 @@ export const renameDataset = async (datasetId: string, newName: string): Promise
     store.put({ ...(row as LocalDataset), name: trimmed, updated_at: nowIso() });
     return await Promise.resolve();
   });
+  enqueuePush({ type: 'dataset', id: datasetId, action: 'upsert', data: { name: trimmed, updated_at: nowIso() } });
 };
 
 export const deleteDataset = async (datasetId: string): Promise<void> => {
@@ -462,6 +482,7 @@ export const deleteDataset = async (datasetId: string): Promise<void> => {
       snap.datasets = snap.datasets.filter(d => d.id !== datasetId);
       snap.dataset_points = snap.dataset_points.filter(dp => dp.dataset_id !== datasetId);
     });
+    enqueuePush({ type: 'dataset', id: datasetId, action: 'delete' });
     return;
   }
 
@@ -471,6 +492,7 @@ export const deleteDataset = async (datasetId: string): Promise<void> => {
     tx.objectStore(STORE_DATASET_POINTS).delete(datasetId);
     return await Promise.resolve();
   });
+  enqueuePush({ type: 'dataset', id: datasetId, action: 'delete' });
 };
 
 export const getDatasetWithPoints = async (datasetId: string): Promise<LocalDatasetWithPoints> => {
@@ -546,13 +568,21 @@ export const saveDatasetFromAnalysis = async (input: {
   }
 
   if (!(await canUseIdb())) {
-    return await withLocalStorage((snap) => {
+    const result = await withLocalStorage((snap) => {
       snap.datasets.push(dataset);
       snap.dataset_points.push({ dataset_id: dataset.id, points });
       const p = snap.projects.find(x => x.id === projectId);
       if (p) p.updated_at = nowIso();
       return { dataset };
     });
+    enqueuePush({ type: 'dataset', id: dataset.id, action: 'upsert', data: {
+      project_id: dataset.project_id, name: dataset.name, source_filename: dataset.source_filename,
+      fingerprint: dataset.fingerprint, start_time: dataset.start_time, end_time: dataset.end_time,
+      interval_minutes: dataset.interval_minutes, points_count: dataset.points_count,
+      meta_json: dataset.meta_json, quality_report_json: dataset.quality_report_json,
+      created_at: dataset.created_at, updated_at: dataset.updated_at,
+    } });
+    return result;
   }
 
   const db = await getDb();
@@ -565,6 +595,13 @@ export const saveDatasetFromAnalysis = async (input: {
     return await Promise.resolve();
   });
 
+  enqueuePush({ type: 'dataset', id: dataset.id, action: 'upsert', data: {
+    project_id: dataset.project_id, name: dataset.name, source_filename: dataset.source_filename,
+    fingerprint: dataset.fingerprint, start_time: dataset.start_time, end_time: dataset.end_time,
+    interval_minutes: dataset.interval_minutes, points_count: dataset.points_count,
+    meta_json: dataset.meta_json, quality_report_json: dataset.quality_report_json,
+    created_at: dataset.created_at, updated_at: dataset.updated_at,
+  } });
   return { dataset };
 };
 
@@ -671,6 +708,7 @@ export const deleteRun = async (runId: string): Promise<void> => {
       snap.runs = snap.runs.filter(r => r.id !== runId);
       snap.run_artifacts = snap.run_artifacts.filter(a => a.run_id !== runId);
     });
+    enqueuePush({ type: 'run', id: runId, action: 'delete' });
     return;
   }
   const db = await getDb();
@@ -683,6 +721,7 @@ export const deleteRun = async (runId: string): Promise<void> => {
     runs.delete(runId);
     return await Promise.resolve();
   });
+  enqueuePush({ type: 'run', id: runId, action: 'delete' });
 };
 
 export const addRunArtifacts = async (
@@ -713,6 +752,7 @@ export const addRunArtifacts = async (
         });
       }
     });
+    enqueuePush({ type: 'run', id: runId, action: 'upsert', data: { updated_at: updatedAt } });
     return;
   }
 
@@ -738,6 +778,7 @@ export const addRunArtifacts = async (
     }
     return await Promise.resolve();
   });
+  enqueuePush({ type: 'run', id: runId, action: 'upsert', data: { updated_at: updatedAt } });
 };
 
 export const saveRunSnapshot = async (input: {
@@ -780,7 +821,7 @@ export const saveRunSnapshot = async (input: {
   const artifacts = Array.isArray(input.artifacts) ? input.artifacts : [];
 
   if (!(await canUseIdb())) {
-    return await withLocalStorage(async (snap) => {
+    const result = await withLocalStorage(async (snap) => {
       snap.runs.push(run);
       for (const a of artifacts) {
         const base64 = await blobToBase64(a.blob);
@@ -798,6 +839,14 @@ export const saveRunSnapshot = async (input: {
       if (p) p.updated_at = nowIso();
       return run;
     });
+    enqueuePush({ type: 'run', id: run.id, action: 'upsert', data: {
+      project_id: run.project_id, name: run.name, dataset_id: run.dataset_id,
+      config_snapshot: run.config_snapshot, cycles_snapshot: run.cycles_snapshot,
+      economics_snapshot: run.economics_snapshot, profit_snapshot: run.profit_snapshot,
+      quality_snapshot: run.quality_snapshot,
+      created_at: run.created_at, updated_at: run.updated_at,
+    } });
+    return result;
   }
 
   const db = await getDb();
@@ -822,6 +871,13 @@ export const saveRunSnapshot = async (input: {
     return await Promise.resolve();
   });
 
+  enqueuePush({ type: 'run', id: run.id, action: 'upsert', data: {
+    project_id: run.project_id, name: run.name, dataset_id: run.dataset_id,
+    config_snapshot: run.config_snapshot, cycles_snapshot: run.cycles_snapshot,
+    economics_snapshot: run.economics_snapshot, profit_snapshot: run.profit_snapshot,
+    quality_snapshot: run.quality_snapshot,
+    created_at: run.created_at, updated_at: run.updated_at,
+  } });
   return run;
 };
 

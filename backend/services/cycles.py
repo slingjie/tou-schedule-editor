@@ -680,8 +680,7 @@ def compute_window_avg_days(
     cap = float(storage_cfg.get("capacity_kwh", 0) or 0)
     c_rate = float(storage_cfg.get("c_rate", 0) or 0)
     eta = float(storage_cfg.get("single_side_efficiency", 0.9) or 0.9)
-    # 保持原变量名存在以兼容旧引用，但实际使用 effective_dod
-    dod = effective_dod
+    dod = float(storage_cfg.get("depth_of_discharge", 1.0) or 1.0)
     reserve_ch = float(storage_cfg.get("reserve_charge_kw", 0) or 0)
     reserve_dis = float(storage_cfg.get("reserve_discharge_kw", 0) or 0)
 

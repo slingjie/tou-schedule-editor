@@ -7,28 +7,11 @@ import type {
   BackendStorageCurvesResponse,
   BackendStorageProfitWithFormulas,
   DischargeStrategy,
-  TierId,
 } from '../types';
 import type { LoadDataPoint } from '../utils';
 import { fetchStorageCurves, computeStorageCycles, type StorageParamsPayload } from '../storageApi';
 import { EChartTimeSeries } from './EChartTimeSeries';
 import { TIER_DEFINITIONS, DISCHARGE_STRATEGY_INFO } from '../constants';
-
-const fallbackOpByTou = (tou: TierId): '充' | '放' | '待机' => {
-  if (tou === '谷' || tou === '深') return '充';
-  if (tou === '峰' || tou === '尖') return '放';
-  return '待机';
-};
-
-const hasAnyStorageOpInSchedule = (scheduleData: StorageProfitPageProps['scheduleData']): boolean => {
-  const monthHas = scheduleData.monthlySchedule.some((month) =>
-    month.some((cell) => cell.op === '充' || cell.op === '放'),
-  );
-  if (monthHas) return true;
-  return scheduleData.dateRules.some((rule) =>
-    rule.schedule.some((cell) => cell.op === '充' || cell.op === '放'),
-  );
-};
 
 // 复用 ECharts 按需加载逻辑（与 EChartTimeSeries 保持一致）
 const loadECharts = (): Promise<any> => {
@@ -92,27 +75,6 @@ const buildDefaultStoragePayload = (
     load_kwh: Number(p.load),
   }));
 
-  const hasStorageOps = hasAnyStorageOpInSchedule(scheduleData);
-
-  const monthlyScheduleForStrategy = hasStorageOps
-    ? scheduleData.monthlySchedule
-    : scheduleData.monthlySchedule.map((month) =>
-        month.map((cell) => ({
-          ...cell,
-          op: fallbackOpByTou(cell.tou as TierId),
-        })),
-      );
-
-  const dateRulesForStrategy = hasStorageOps
-    ? scheduleData.dateRules
-    : scheduleData.dateRules.map((rule) => ({
-        ...rule,
-        schedule: rule.schedule.map((cell) => ({
-          ...cell,
-          op: fallbackOpByTou(cell.tou as TierId),
-        })),
-      }));
-
   const storageDefaults: StorageParamsPayload['storage'] = {
     capacity_kwh: 5000,
     c_rate: 0.5,
@@ -135,8 +97,8 @@ const buildDefaultStoragePayload = (
   return {
     storage: storageDefaults,
     strategySource: {
-      monthlySchedule: monthlyScheduleForStrategy,
-      dateRules: dateRulesForStrategy,
+      monthlySchedule: scheduleData.monthlySchedule,
+      dateRules: scheduleData.dateRules,
     },
     monthlyTouPrices: scheduleData.prices,
     points,
@@ -158,10 +120,6 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
   const [curvesData, setCurvesData] = useState<BackendStorageCurvesResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const autoStrategyActive = useMemo(
-    () => !hasAnyStorageOpInSchedule(scheduleData),
-    [scheduleData],
-  );
   // 若一开始已有 StorageCycles 页传入的结果，优先复用结果；重新加载时再回落为本页请求
   const [cyclesResult, setCyclesResult] = useState<BackendStorageCyclesResponse | null>(storageCyclesResult ?? null);
 
@@ -337,7 +295,7 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
         billSaved: delta,
       };
     }).filter((row): row is {
-      id: TierId;
+      id: string;
       name: string;
       energyOriginal: number;
       energyNew: number;
@@ -726,11 +684,6 @@ export const StorageProfitPage: React.FC<StorageProfitPageProps> = ({
           本页基于与储能次数计算相同的 TOU 配置与负荷数据，按日查看"引入储能前后"的负荷曲线与收益指标。
           当前实现使用一组默认的储能参数进行演示，如需与实际项目严格对齐，可在后续迭代中将参数从 StorageCycles 页透传进来。
         </p>
-        {autoStrategyActive && (
-          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-            当前排程未配置储能运行逻辑（充/放）。本页已临时按 TOU 自动推断策略：谷/深=充，峰/尖=放，以便展示收益与成本对比。
-          </div>
-        )}
       </div>
 
       {storageCyclesPayload?.storage && (

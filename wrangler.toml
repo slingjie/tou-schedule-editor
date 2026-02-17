@@ -1,0 +1,12 @@
+name = "tou-schedule-editor"
+compatibility_date = "2026-02-11"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tou-schedule-db"
+database_id = "a84a7d8e-fde5-4aac-a540-2b3cf77aad42"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "tou-schedule-storage"

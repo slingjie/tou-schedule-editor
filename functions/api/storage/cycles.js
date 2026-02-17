@@ -223,7 +223,7 @@ const buildDailyOps = (dailyLoads, strategySource) => {
   return map;
 };
 
-const buildRuns = (ops) => {
+const buildRuns = (ops, wrapAcrossMidnight = false) => {
   const runs = [];
   let currentKind = null;
   let currentHours = [];
@@ -249,6 +249,18 @@ const buildRuns = (ops) => {
   }
 
   if (currentKind) runs.push({ kind: currentKind, hours: currentHours.slice() });
+
+  // 跨午夜首尾合并：若首尾连段同类（充/放），合并为一段（与 Python _merge_head_tail_runs 对齐）
+  if (wrapAcrossMidnight && runs.length >= 2) {
+    const first = runs[0];
+    const last = runs[runs.length - 1];
+    if (first.kind === last.kind) {
+      const mergedHours = [...new Set([...last.hours, ...first.hours])].sort((a, b) => a - b);
+      const merged = { kind: first.kind, hours: mergedHours };
+      return [merged, ...runs.slice(1, -1)];
+    }
+  }
+
   return runs;
 };
 
@@ -257,7 +269,7 @@ const buildDailyMasks = (dailyOps, mergeThresholdMinutes) => {
   let mergedSegments = 0;
 
   for (const [date, ops] of dailyOps.entries()) {
-    const runs = buildRuns(ops).filter((run) => run.hours.length * 60 >= mergeThresholdMinutes);
+    const runs = buildRuns(ops, true).filter((run) => run.hours.length * 60 >= mergeThresholdMinutes);
 
     const c1 = { charge_hours: new Set(), discharge_hours: new Set() };
     const c2 = { charge_hours: new Set(), discharge_hours: new Set() };

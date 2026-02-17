@@ -9,7 +9,6 @@ import type {
   StorageEconomicsResult,
 } from './types';
 import { getApiBaseUrl } from './desktopBackend';
-import { ensureBackendSupports } from './backendCapabilities';
 
 export const BASE_URL = getApiBaseUrl();
 
@@ -52,8 +51,6 @@ export const computeStorageCycles = async (
   file: File | null,
   payload: StorageParamsPayload,
 ): Promise<BackendStorageCyclesResponse> => {
-  await ensureBackendSupports('储能次数测算', ['/api/storage/cycles']);
-
   const formData = new FormData();
   if (file) formData.append('file', file);
   formData.append('payload', JSON.stringify(payload));
@@ -109,8 +106,6 @@ export const exportStorageCyclesReport = async (
   file: File | null,
   payload: StorageParamsPayload,
 ): Promise<StorageCyclesExportResponse> => {
-  await ensureBackendSupports('储能次数报表导出', ['/api/storage/cycles']);
-
   const formData = new FormData();
   if (file) formData.append('file', file);
   formData.append('payload', JSON.stringify(payload));
@@ -170,8 +165,6 @@ export const exportStorageBusinessReport = async (
   file: File | null,
   payload: StorageParamsPayload,
 ): Promise<StorageCyclesExportResponse> => {
-  await ensureBackendSupports('运行与收益业务报表导出', ['/api/storage/cycles']);
-
   const formData = new FormData();
   if (file) formData.append('file', file);
   formData.append('payload', JSON.stringify(payload));
@@ -233,61 +226,56 @@ export const computeStorageCyclesWithProgress = (
   console.debug('[storageApi] XHR POST cycles', url, { base: BASE_URL, hasFile: !!file });
 
   const xhr = new XMLHttpRequest();
+  xhr.open('POST', url, true);
 
-  const promise = (async (): Promise<BackendStorageCyclesResponse> => {
-    await ensureBackendSupports('储能次数测算', ['/api/storage/cycles']);
-
-    xhr.open('POST', url, true);
-
-    if (onUploadProgress) {
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          onUploadProgress(e.loaded, e.total);
-        }
-      };
-    }
-
-    return new Promise<BackendStorageCyclesResponse>((resolve, reject) => {
-      xhr.onerror = () => {
-        reject(new Error('网络错误，无法提交测算请求。'));
-      };
-      xhr.onreadystatechange = () => {
-        if (xhr.readyState === 4) {
-          const contentType = xhr.getResponseHeader('content-type') || '';
-          let result: any = null;
-          let rawText: string | null = null;
-          try {
-            rawText = xhr.responseText;
-            if (contentType.includes('application/json')) {
-              result = JSON.parse(rawText);
-            } else {
-              try { result = rawText ? JSON.parse(rawText) : null; } catch { /* ignore */ }
-            }
-          } catch { /* ignore parse */ }
-
-          if (xhr.status < 200 || xhr.status >= 300) {
-            const detail = result?.detail || rawText || `${xhr.status} ${xhr.statusText}` || '服务器处理失败，请稍后重试。';
-            console.error('[storageApi] computeStorageCyclesWithProgress failed', {
-              url,
-              status: xhr.status,
-              statusText: xhr.statusText,
-              detail,
-              payload,
-              rawText,
-            });
-            reject(new Error(detail));
-            return;
-          }
-          resolve(result as BackendStorageCyclesResponse);
-        }
-      };
-      try {
-        xhr.send(formData);
-      } catch (err) {
-        reject(err instanceof Error ? err : new Error(String(err)));
+  if (onUploadProgress) {
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onUploadProgress(e.loaded, e.total);
       }
-    });
-  })();
+    };
+  }
+
+  const promise = new Promise<BackendStorageCyclesResponse>((resolve, reject) => {
+    xhr.onerror = () => {
+      reject(new Error('网络错误，无法提交测算请求。'));
+    };
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState === 4) {
+        const contentType = xhr.getResponseHeader('content-type') || '';
+        let result: any = null;
+        let rawText: string | null = null;
+        try {
+          rawText = xhr.responseText;
+          if (contentType.includes('application/json')) {
+            result = JSON.parse(rawText);
+          } else {
+            try { result = rawText ? JSON.parse(rawText) : null; } catch { /* ignore */ }
+          }
+        } catch { /* ignore parse */ }
+
+        if (xhr.status < 200 || xhr.status >= 300) {
+          const detail = result?.detail || rawText || `${xhr.status} ${xhr.statusText}` || '服务器处理失败，请稍后重试。';
+          console.error('[storageApi] computeStorageCyclesWithProgress failed', {
+            url,
+            status: xhr.status,
+            statusText: xhr.statusText,
+            detail,
+            payload,
+            rawText,
+          });
+          reject(new Error(detail));
+          return;
+        }
+        resolve(result as BackendStorageCyclesResponse);
+      }
+    };
+    try {
+      xhr.send(formData);
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
 
   return {
     promise,
@@ -299,8 +287,6 @@ export const fetchStorageCurves = async (
   payload: StorageParamsPayload,
   date: string,
 ): Promise<BackendStorageCurvesResponse> => {
-  await ensureBackendSupports('储能收益曲线查询', ['/api/storage/cycles/curves']);
-
   const url = `${BASE_URL}/api/storage/cycles/curves`;
   console.debug('[storageApi] POST', url, { base: BASE_URL, date });
 
@@ -349,8 +335,6 @@ export const fetchStorageCurves = async (
 export const analyzeDataForCleaning = async (
   fileOrPoints: File | { timestamp: string; load_kwh: number }[],
 ): Promise<CleaningAnalysisResponse> => {
-  await ensureBackendSupports('数据清洗分析', ['/api/cleaning/analyze']);
-
   const formData = new FormData();
 
   if (fileOrPoints instanceof File) {
@@ -400,8 +384,6 @@ export const applyDataCleaning = async (
   fileOrPoints: File | { timestamp: string; load_kwh: number }[],
   config: CleaningConfigRequest,
 ): Promise<CleaningResultResponse> => {
-  await ensureBackendSupports('数据清洗应用', ['/api/cleaning/apply']);
-
   const formData = new FormData();
 
   if (fileOrPoints instanceof File) {
@@ -452,8 +434,6 @@ export const applyDataCleaning = async (
 export const computeStorageEconomics = async (
   input: StorageEconomicsInput,
 ): Promise<StorageEconomicsResult> => {
-  await ensureBackendSupports('储能经济性测算', ['/api/storage/economics']);
-
   const url = `${BASE_URL}/api/storage/economics`;
   console.debug('[storageApi] POST storage/economics', url, input);
 
@@ -499,8 +479,6 @@ export const exportEconomicsCashflowReport = async (
   mime_type?: string;
   file_content_base64?: string;
 }> => {
-  await ensureBackendSupports('储能经济性报表导出', ['/api/storage/economics/export']);
-
   const url = `${BASE_URL}/api/storage/economics/export`;
   const requestBody = {
     ...input,

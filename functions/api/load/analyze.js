@@ -8,41 +8,41 @@ const jsonHeaders = {
 }
 
 const toDayKey = (d) => {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
 
 const toMonthKey = (d) => {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
   return `${y}-${m}`
 }
 
 const toHourKey = (d) => {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  const h = String(d.getUTCHours()).padStart(2, '0')
   return `${y}-${m}-${day} ${h}`
 }
 
 const startOfDay = (d) => {
   const x = new Date(d)
-  x.setHours(0, 0, 0, 0)
+  x.setUTCHours(0, 0, 0, 0)
   return x
 }
 
 const startOfHour = (d) => {
   const x = new Date(d)
-  x.setMinutes(0, 0, 0)
+  x.setUTCMinutes(0, 0, 0)
   return x
 }
 
 const addDays = (d, n) => {
   const x = new Date(d)
-  x.setDate(x.getDate() + n)
+  x.setUTCDate(x.getUTCDate() + n)
   return x
 }
 
@@ -50,13 +50,43 @@ const parseTimestamp = (value) => {
   if (value == null) return null
   let s = String(value).trim()
   if (!s) return null
-  if (s.includes('/')) s = s.replace(/\//g, '-')
-  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
-    s = `${s}T00:00:00`
-  } else if (/^\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{1,2}(:\d{1,2})?$/.test(s)) {
-    s = s.replace(' ', 'T')
+
+  // 手动解析，避免 new Date() 对非标准格式的隐式 UTC 解析
+  // 支持格式：
+  //   YYYY/M/D H:mm[:ss]  |  YYYY-M-D H:mm[:ss]
+  //   M/D/YYYY H:mm[:ss]  |  M-D-YYYY H:mm[:ss]
+  //   以及不带时间的纯日期
+  const sep = s.includes('/') ? '/' : '-'
+  const parts = s.split(/[\s]+/)          // [datePart, timePart?]
+  const dateParts = parts[0].split(sep)   // [a, b, c]
+  if (dateParts.length !== 3) return null
+
+  let year, month, day
+  const a = parseInt(dateParts[0], 10)
+  const b = parseInt(dateParts[1], 10)
+  const c = parseInt(dateParts[2], 10)
+  if (isNaN(a) || isNaN(b) || isNaN(c)) return null
+
+  if (a > 100) {
+    // YYYY-M-D
+    year = a; month = b; day = c
+  } else if (c > 100) {
+    // M/D/YYYY
+    month = a; day = b; year = c
+  } else {
+    return null // 无法判断格式
   }
-  const d = new Date(s)
+
+  let hour = 0, minute = 0, second = 0
+  if (parts[1]) {
+    const timeParts = parts[1].split(':')
+    hour = parseInt(timeParts[0], 10) || 0
+    minute = parseInt(timeParts[1], 10) || 0
+    second = parseInt(timeParts[2], 10) || 0
+  }
+
+  // 使用 Date.UTC 构造，确保时间语义一致（全部按 UTC 存储和输出）
+  const d = new Date(Date.UTC(year, month - 1, day, hour, minute, second))
   return Number.isNaN(d.getTime()) ? null : d
 }
 
@@ -139,7 +169,7 @@ const buildMissingReport = (dates) => {
     let presentCount = 0
     for (let h = 0; h < 24; h += 1) {
       const hour = new Date(day)
-      hour.setHours(h, 0, 0, 0)
+      hour.setUTCHours(h, 0, 0, 0)
       if (presentHoursSet.has(toHourKey(hour))) {
         presentCount += 1
       }
@@ -285,8 +315,11 @@ export async function onRequestPost(context) {
 
 
       parsedDates.push(parsedDate)
+      // 输出不带 Z 后缀的 ISO 格式（如 "2024-01-01T00:00:00"），
+      // 使前端 new Date() 按本地时间解析，避免时区偏移
+      const isoNoZ = parsedDate.toISOString().replace('Z', '').replace(/\.000$/, '')
       points.push({
-        timestamp: parsedDate.toISOString(),
+        timestamp: isoNoZ,
         load_kwh: loadValue,
         __ts: parsedDate.getTime(),
       })
