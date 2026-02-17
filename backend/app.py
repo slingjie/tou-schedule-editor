@@ -395,6 +395,10 @@ async def health_check() -> dict[str, str]:
 async def debug_runtime() -> Dict[str, Any]:
     """运行时自检：用于排查“端口指向对了但路由缺失/代码未更新”等问题（仅本地调试使用）"""
 
+    # 安全审计 P2 #6：仅在显式开启调试模式时暴露内部信息
+    if os.environ.get("DEBUG_MODE", "").strip() != "1":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
     paths = sorted({getattr(r, "path", "") for r in app.routes})
     return {
         "python": {"executable": os.sys.executable, "version": os.sys.version},

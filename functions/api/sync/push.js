@@ -3,8 +3,14 @@
  * Batch upsert/delete entities to D1.
  * Body: { device_id: string, entities: Array<{ type, id, action, data? }> }
  */
+import { checkSyncAuth } from './_auth.js';
+
 export async function onRequestPost(context) {
   const { request, env } = context;
+
+  // 安全审计 P0 #2：鉴权检查
+  const authErr = checkSyncAuth(request, env);
+  if (authErr) return authErr;
 
   try {
     const body = await request.json();

@@ -10,3 +10,8 @@ database_id = "a84a7d8e-fde5-4aac-a540-2b3cf77aad42"
 [[r2_buckets]]
 binding = "R2"
 bucket_name = "tou-schedule-storage"
+
+# 安全审计 P0 #2：Sync API 鉴权
+# 请在 Cloudflare Dashboard → Pages → Settings → Environment variables 中设置：
+#   SYNC_API_KEY = <你的随机密钥>
+# 前端需在 localStorage 中设置相同的值（key: SYNC_API_KEY）

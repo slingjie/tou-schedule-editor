@@ -3,8 +3,14 @@
  * Pull changed entities from D1 since a given timestamp.
  * Returns projects, datasets, runs, tou_configs updated after `since`.
  */
+import { checkSyncAuth } from './_auth.js';
+
 export async function onRequestGet(context) {
   const { request, env } = context;
+
+  // 安全审计 P0 #2：鉴权检查
+  const authErr = checkSyncAuth(request, env);
+  if (authErr) return authErr;
 
   try {
     const url = new URL(request.url);

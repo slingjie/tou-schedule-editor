@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       strictPort: true,
-      host: '0.0.0.0',
+      host: '127.0.0.1',
       watch: {
         ignored: ['**/src-tauri/**'],
       },
@@ -42,8 +42,8 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react()],
     define: {
-      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+      // 注意：API Key 不应注入前端包（安全审计 P0 #1）
+      // 所有需要 API Key 的请求应通过后端代理
     },
     resolve: {
       alias: {

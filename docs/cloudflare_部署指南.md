@@ -30,6 +30,22 @@ npm run build
 wrangler pages deploy dist --project-name=tou-schedule-editor
 ```
 
+## 部署后配置（必选）
+
+为保障数据安全，部署后**必须**配置 Sync API Key，否则无法使用云端同步功能。
+
+### 1. 后端配置
+在 Cloudflare Dashboard 中设置环境变量：
+1. 进入 Pages 项目 → **Settings** → **Environment variables**
+2. 添加变量：`SYNC_API_KEY` = `<你的高强度随机密钥>`
+3. 保存并**重新部署**（或等待下一次部署生效）
+
+### 2. 前端配置
+1. 访问部署后的网址
+2. 点击右上角的 **"☁️ Sync"** 按钮
+3. 输入相同的密钥并保存
+4. 系统将立即触发一次同步，验证密钥是否正确
+
 ## 常见问题与解决方法
 
 ### 问题 1：Git 未提交更改警告

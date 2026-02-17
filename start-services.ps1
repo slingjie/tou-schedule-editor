@@ -157,7 +157,7 @@ $backendArgs = @(
     "-m", "uvicorn",
     "backend.app:app",
     "--app-dir", $PSScriptRoot,
-    "--host", "0.0.0.0",
+    "--host", "127.0.0.1",
     "--port", $BackendPort.ToString(),
     "--reload-dir", $PSScriptRoot
 )

@@ -146,8 +146,8 @@ if defined SKIP_BACKEND_START (
 
     echo [%date% %time%] 后端日志: %BACKEND_LOG%>>"%LOG_FILE%"
     echo [%date% %time%] 后端错误日志: %BACKEND_ERR%>>"%LOG_FILE%"
-    echo [%date% %time%] 后端命令: "%PY_EXE%" -X utf8 -m uvicorn backend.app:app --app-dir . --host 0.0.0.0 --port %PORT% --reload-dir . --reload>>"%LOG_FILE%"
-    start "backend-service" cmd /c "chcp 65001>nul && cd /d ""%~dp0"" && ""%PY_EXE%"" -X utf8 -m uvicorn backend.app:app --app-dir . --host 0.0.0.0 --port %PORT% --reload-dir . --reload 1> ""%BACKEND_LOG%"" 2> ""%BACKEND_ERR%"""
+    echo [%date% %time%] 后端命令: "%PY_EXE%" -X utf8 -m uvicorn backend.app:app --app-dir . --host 127.0.0.1 --port %PORT% --reload-dir . --reload>>"%LOG_FILE%"
+    start "backend-service" cmd /c "chcp 65001>nul && cd /d ""%~dp0"" && ""%PY_EXE%"" -X utf8 -m uvicorn backend.app:app --app-dir . --host 127.0.0.1 --port %PORT% --reload-dir . --reload 1> ""%BACKEND_LOG%"" 2> ""%BACKEND_ERR%"""
 )
 
 REM 等待后端启动

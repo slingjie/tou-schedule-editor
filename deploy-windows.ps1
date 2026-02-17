@@ -29,7 +29,7 @@ Write-Host ""
 
 $backendJob = Start-Job -ScriptBlock {
     Set-Location backend
-    python -m uvicorn app:app --host 0.0.0.0 --port 8000
+    python -m uvicorn app:app --host 127.0.0.1 --port 8000
 }
 
 # 等待后端启动

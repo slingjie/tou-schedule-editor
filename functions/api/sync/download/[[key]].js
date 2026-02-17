@@ -3,8 +3,14 @@
  * Download a file from R2 by its key.
  * The key is the full path after /api/sync/download/
  */
+import { checkSyncAuth } from '../_auth.js';
+
 export async function onRequestGet(context) {
   const { request, env } = context;
+
+  // 安全审计 P0 #2：鉴权检查
+  const authErr = checkSyncAuth(request, env);
+  if (authErr) return authErr;
 
   try {
     const url = new URL(request.url);

@@ -3,8 +3,14 @@
  * Register or update a device heartbeat.
  * Body: { device_id: string, device_name?: string }
  */
+import { checkSyncAuth } from './_auth.js';
+
 export async function onRequestPost(context) {
   const { request, env } = context;
+
+  // 安全审计 P0 #2：鉴权检查
+  const authErr = checkSyncAuth(request, env);
+  if (authErr) return authErr;
 
   try {
     const body = await request.json();

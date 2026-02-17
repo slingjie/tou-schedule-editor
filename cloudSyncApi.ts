@@ -47,8 +47,27 @@ type UploadResponse = {
   size_bytes: number;
 };
 
+/**
+ * 从 localStorage 获取 Sync API Key（安全审计 P0 #2）
+ * 用户需在应用设置中配置此 Key，与 Cloudflare 环境变量 SYNC_API_KEY 一致
+ */
+function getSyncApiKey(): string {
+  try {
+    return localStorage.getItem('SYNC_API_KEY') || '';
+  } catch {
+    return '';
+  }
+}
+
 async function request<T>(path: string, init: RequestInit): Promise<T> {
-  const res = await fetch(`${SYNC_BASE}${path}`, init);
+  // 安全审计 P0 #2：自动附加 API Key
+  const apiKey = getSyncApiKey();
+  const headers = new Headers(init.headers || {});
+  if (apiKey) {
+    headers.set('X-API-Key', apiKey);
+  }
+
+  const res = await fetch(`${SYNC_BASE}${path}`, { ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Sync API ${path} failed (${res.status}): ${text}`);
@@ -152,7 +171,12 @@ export async function pullEntities(deviceId: string, since: string): Promise<Pul
 }
 
 export async function downloadBlob(r2Key: string): Promise<Response> {
-  const res = await fetch(`${SYNC_BASE}/download/${encodeURIComponent(r2Key)}`);
+  const headers: Record<string, string> = {};
+  const apiKey = getSyncApiKey();
+  if (apiKey) {
+    headers['X-API-Key'] = apiKey;
+  }
+  const res = await fetch(`${SYNC_BASE}/download/${encodeURIComponent(r2Key)}`, { headers });
   if (!res.ok) {
     throw new Error(`Download ${r2Key} failed (${res.status})`);
   }
